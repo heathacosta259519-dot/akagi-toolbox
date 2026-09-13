@@ -6,7 +6,7 @@ A collection of handy little tools.
 
 ## 工具列表
 
-> 暂无，陆续添加中……
+- **[context-menu-editor](tools/context-menu-editor/)** — Windows 右键菜单编辑器：非破坏性地禁用 / 恢复资源管理器右键菜单项（静态项 + COM 扩展），支持操作撤销与经典菜单切换。
 
 ## 目录约定
 
