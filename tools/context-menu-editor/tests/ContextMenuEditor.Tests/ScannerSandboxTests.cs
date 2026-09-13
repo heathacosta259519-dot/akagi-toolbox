@@ -8,6 +8,7 @@ namespace ContextMenuEditor.Tests;
 public sealed class ScannerSandboxTests : IDisposable
 {
     private const string VerbKey = @"SOFTWARE\Classes\Directory\Background\shell\AkagiToolboxTestVerb";
+    private const string CascadeKey = @"SOFTWARE\Classes\Directory\Background\shell\AkagiToolboxTestCascade";
     private const string HandlerKey = @"SOFTWARE\Classes\*\shellex\ContextMenuHandlers\AkagiToolboxTestHandler";
     private const string TestClsid = "{DEADBEEF-1234-5678-9ABC-DEF012345678}";
 
@@ -18,6 +19,16 @@ public sealed class ScannerSandboxTests : IDisposable
             verb.SetValue("MUIVerb", "Akagi 测试菜单项");
             using var command = verb.CreateSubKey("command");
             command.SetValue(null, @"""C:\Windows\System32\notepad.exe"" ""%1""");
+        }
+
+        using (var cascade = Registry.CurrentUser.CreateSubKey(CascadeKey))
+        {
+            cascade.SetValue("MUIVerb", "Akagi 测试级联");
+            cascade.SetValue("ExtendedSubCommandsKey", @"Directory\Background\shell\AkagiToolboxTestCascade");
+            using var child = cascade.CreateSubKey(@"shell\AkagiToolboxTestChild");
+            child.SetValue("MUIVerb", "Akagi 子菜单项");
+            using var childCommand = child.CreateSubKey("command");
+            childCommand.SetValue(null, @"""C:\Windows\System32\notepad.exe"" ""%1""");
         }
 
         using (var handler = Registry.CurrentUser.CreateSubKey(HandlerKey))
@@ -45,9 +56,29 @@ public sealed class ScannerSandboxTests : IDisposable
         Assert.Equal(EntryKind.ComHandler, handler.Kind);
     }
 
+    [Fact]
+    public void Scan_expands_cascade_submenu_children()
+    {
+        var entries = new RegistryScanner(new PublisherResolver()).ScanAll();
+
+        var parent = entries.Single(entry => entry.Id == @"static|CurrentUser|Directory\Background|AkagiToolboxTestCascade");
+        Assert.True(parent.HasChildren);
+        Assert.Equal(0, parent.Indent);
+        Assert.Null(parent.ParentId);
+
+        var child = entries.Single(entry => entry.Id == @"static|CurrentUser|Directory\Background\shell\AkagiToolboxTestCascade\shell\AkagiToolboxTestChild");
+        Assert.Equal("Akagi 子菜单项", child.DisplayName);
+        Assert.Equal(1, child.Indent);
+        Assert.Equal(parent.Id, child.ParentId);
+        Assert.Equal(@"Directory\Background\shell\AkagiToolboxTestCascade\shell\AkagiToolboxTestChild", child.KeyPath);
+        Assert.Equal(@"HKEY_CURRENT_USER\SOFTWARE\Classes\Directory\Background\shell\AkagiToolboxTestCascade\shell\AkagiToolboxTestChild", child.RegistryPath);
+        Assert.Equal(LocationKind.DirectoryBackground, child.Location);
+    }
+
     public void Dispose()
     {
         Registry.CurrentUser.DeleteSubKeyTree(VerbKey, false);
+        Registry.CurrentUser.DeleteSubKeyTree(CascadeKey, false);
         Registry.CurrentUser.DeleteSubKeyTree(HandlerKey, false);
     }
 }
