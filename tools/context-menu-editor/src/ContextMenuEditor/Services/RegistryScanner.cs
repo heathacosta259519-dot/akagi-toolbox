@@ -77,6 +77,9 @@ public sealed class RegistryScanner
         var executable = ShellPathParser.ExtractExecutable(command);
         var iconPath = ShellPathParser.ParseIconValue(iconValue)?.Path ?? executable;
         var kind = explorerCommand != null ? EntryKind.ExplorerCommand : EntryKind.StaticVerb;
+        var clsid = ClsidNormalizer.Normalize(explorerCommand);
+        var serverPath = clsid != null ? _publishers.ResolveServerPath(clsid) : null;
+        var resolvedIcon = iconPath ?? serverPath;
 
         return new MenuEntry
         {
@@ -89,9 +92,9 @@ public sealed class RegistryScanner
             RegistryPath = BuildRegistryPath(scope, RegistryViewKind.X64, $@"{location.SubPath}\shell\{verbName}"),
             KeyPath = $@"{location.SubPath}\shell\{verbName}",
             Command = command ?? delegateExecute ?? explorerCommand,
-            Clsid = ClsidNormalizer.Normalize(explorerCommand),
-            IconSource = iconPath,
-            Publisher = _publishers.FromFile(iconPath) ?? _publishers.FromFile(executable),
+            Clsid = clsid,
+            IconSource = resolvedIcon,
+            Publisher = _publishers.FromFile(iconPath) ?? _publishers.FromFile(executable) ?? _publishers.FromFile(serverPath),
             IsSystem = RegistryLocations.IsSystemItem(location.Kind, verbName),
             State = disabled ? EntryState.Disabled : EntryState.Enabled,
             StateDetail = disabled ? "LegacyDisable" : null,

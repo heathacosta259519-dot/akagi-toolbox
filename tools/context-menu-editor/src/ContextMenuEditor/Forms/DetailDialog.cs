@@ -7,7 +7,7 @@ public sealed class DetailDialog : Form
 {
     public bool ToggleRequested { get; private set; }
 
-    private DetailDialog(MenuEntry entry, Image? icon)
+    private DetailDialog(MenuEntry entry, Image? icon, string? note)
     {
         Text = "菜单项详情";
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -29,15 +29,15 @@ public sealed class DetailDialog : Form
         };
 
         root.Controls.Add(BuildHeader(entry, icon), 0, 0);
-        root.Controls.Add(BuildDetails(entry), 0, 1);
+        root.Controls.Add(BuildDetails(entry, note), 0, 1);
         root.Controls.Add(BuildButtons(entry), 0, 2);
 
         Controls.Add(root);
     }
 
-    public static bool Show(IWin32Window owner, MenuEntry entry, Image? icon)
+    public static bool Show(IWin32Window owner, MenuEntry entry, Image? icon, string? note = null)
     {
-        using var dialog = new DetailDialog(entry, icon);
+        using var dialog = new DetailDialog(entry, icon, note);
         return dialog.ShowDialog(owner) == DialogResult.OK && dialog.ToggleRequested;
     }
 
@@ -75,7 +75,7 @@ public sealed class DetailDialog : Form
         return panel;
     }
 
-    private Control BuildDetails(MenuEntry entry)
+    private Control BuildDetails(MenuEntry entry, string? note)
     {
         var panel = new TableLayoutPanel
         {
@@ -88,6 +88,11 @@ public sealed class DetailDialog : Form
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
         var row = 0;
+        if (!string.IsNullOrWhiteSpace(note))
+        {
+            AddRow(panel, ref row, "提示", note!);
+        }
+
         AddRow(panel, ref row, "状态", entry.StateText + (entry.StateDetail is null ? string.Empty : $"（{entry.StateDetail}）"));
         AddRow(panel, ref row, "类型", entry.KindText + (entry.IsSystem ? "（系统关键项）" : string.Empty));
         AddRow(panel, ref row, "位置", RegistryLocations.DisplayNameFor(entry.Location));

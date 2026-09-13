@@ -9,13 +9,20 @@ public sealed class MainForm : Form
     private readonly RegistryScanner _scanner;
     private readonly ToggleService _toggles = new();
     private readonly JournalService _journal = new();
+    private readonly SettingsService _settings = new();
     private readonly IconService _icons = new();
     private readonly ImageList _imageList = new();
     private readonly List<MenuEntry> _entries = [];
+    private readonly ComboBox _modeBox = new();
     private readonly ComboBox _locationBox = new();
+    private readonly ComboBox _sceneBox = new();
+    private readonly Label _locationLabel = new();
+    private readonly Label _sceneLabel = new();
     private readonly TextBox _searchBox = new();
     private readonly CheckBox _onlyDisabled = new();
     private readonly CheckBox _classicMenuBox = new();
+    private bool _simpleMode;
+    private MenuScene _scene = MenuScene.Files;
     private bool _suppressClassic;
     private readonly ListView _list = new();
     private readonly ToolStripStatusLabel _statusLabel = new();
@@ -24,6 +31,8 @@ public sealed class MainForm : Form
     public MainForm()
     {
         _scanner = new RegistryScanner(_publishers);
+        _simpleMode = _settings.SimpleMode;
+        _scene = _settings.Scene;
         BuildLayout();
         Load += (_, _) =>
         {
@@ -62,12 +71,38 @@ public sealed class MainForm : Form
             Padding = new Padding(10, 10, 10, 6),
         };
 
-        top.Controls.Add(new Label { Text = "位置：", AutoSize = true, Margin = new Padding(0, 7, 2, 0) });
+        top.Controls.Add(new Label { Text = "模式：", AutoSize = true, Margin = new Padding(0, 7, 2, 0) });
+        _modeBox.DropDownStyle = ComboBoxStyle.DropDownList;
+        _modeBox.Width = 130;
+        _modeBox.Margin = new Padding(0, 3, 16, 3);
+        _modeBox.Items.AddRange(["简单模式", "高级模式"]);
+        _modeBox.SelectedIndex = _simpleMode ? 0 : 1;
+        top.Controls.Add(_modeBox);
+
+        _locationLabel.Text = "位置：";
+        _locationLabel.AutoSize = true;
+        _locationLabel.Margin = new Padding(0, 7, 2, 0);
+        top.Controls.Add(_locationLabel);
         _locationBox.DropDownStyle = ComboBoxStyle.DropDownList;
         _locationBox.Width = 190;
         _locationBox.Margin = new Padding(0, 3, 16, 3);
         _locationBox.SelectedIndexChanged += (_, _) => RebuildList();
         top.Controls.Add(_locationBox);
+
+        _sceneLabel.Text = "场景：";
+        _sceneLabel.AutoSize = true;
+        _sceneLabel.Margin = new Padding(0, 7, 2, 0);
+        top.Controls.Add(_sceneLabel);
+        _sceneBox.DropDownStyle = ComboBoxStyle.DropDownList;
+        _sceneBox.Width = 190;
+        _sceneBox.Margin = new Padding(0, 3, 16, 3);
+        foreach (var scene in MenuScenes.All)
+        {
+            _sceneBox.Items.Add(scene.DisplayName());
+        }
+
+        _sceneBox.SelectedIndex = MenuScenes.All.ToList().IndexOf(_scene);
+        top.Controls.Add(_sceneBox);
 
         top.Controls.Add(new Label { Text = "搜索：", AutoSize = true, Margin = new Padding(0, 7, 2, 0) });
         _searchBox.Width = 210;
@@ -104,13 +139,7 @@ public sealed class MainForm : Form
         _list.SmallImageList = _imageList;
         _list.ItemChecked += OnItemChecked;
         _list.ItemActivate += OnItemActivate;
-        _list.Columns.Add("名称", 260);
-        _list.Columns.Add("状态", 80);
-        _list.Columns.Add("类型", 100);
-        _list.Columns.Add("位置", 120);
-        _list.Columns.Add("作用域", 100);
-        _list.Columns.Add("来源", 150);
-        _list.Columns.Add("命令 / CLSID", 300);
+        RebuildColumns();
 
         var statusBar = new StatusStrip();
         _statusLabel.Spring = true;
@@ -122,6 +151,64 @@ public sealed class MainForm : Form
         Controls.Add(statusBar);
 
         InitFilters();
+
+        _modeBox.SelectedIndexChanged += (_, _) => OnModeChanged();
+        _sceneBox.SelectedIndexChanged += (_, _) => OnSceneChanged();
+        ApplyModeVisibility();
+    }
+
+    private void OnModeChanged()
+    {
+        _simpleMode = _modeBox.SelectedIndex == 0;
+        ApplyModeVisibility();
+        RebuildColumns();
+        RebuildList();
+        SaveSettings();
+    }
+
+    private void OnSceneChanged()
+    {
+        var index = _sceneBox.SelectedIndex;
+        if (index < 0 || index >= MenuScenes.All.Count)
+        {
+            return;
+        }
+
+        _scene = MenuScenes.All[index];
+        RebuildList();
+        SaveSettings();
+    }
+
+    private void ApplyModeVisibility()
+    {
+        _locationLabel.Visible = !_simpleMode;
+        _locationBox.Visible = !_simpleMode;
+        _sceneLabel.Visible = _simpleMode;
+        _sceneBox.Visible = _simpleMode;
+        _onlyDisabled.Text = _simpleMode ? "只看已隐藏" : "只看已禁用";
+    }
+
+    private void SaveSettings() => _settings.Update(_simpleMode, _scene);
+
+    private void RebuildColumns()
+    {
+        _list.Columns.Clear();
+        if (_simpleMode)
+        {
+            _list.Columns.Add("菜单项", 330);
+            _list.Columns.Add("状态", 90);
+            _list.Columns.Add("来源", 230);
+            _list.Columns.Add("说明", 200);
+            return;
+        }
+
+        _list.Columns.Add("名称", 260);
+        _list.Columns.Add("状态", 80);
+        _list.Columns.Add("类型", 100);
+        _list.Columns.Add("位置", 120);
+        _list.Columns.Add("作用域", 100);
+        _list.Columns.Add("来源", 150);
+        _list.Columns.Add("命令 / CLSID", 300);
     }
 
     private Button CreateButton(string text, EventHandler onClick)
@@ -178,6 +265,51 @@ public sealed class MainForm : Form
             return;
         }
 
+        if (_simpleMode)
+        {
+            RebuildSimpleList();
+            return;
+        }
+
+        RebuildAdvancedList();
+    }
+
+    private void RebuildSimpleList()
+    {
+        IEnumerable<SimpleMenuItem> query = SimpleMenuBuilder.Build(_entries, _scene);
+
+        if (_onlyDisabled.Checked)
+        {
+            query = query.Where(item => !item.IsShown);
+        }
+
+        var text = _searchBox.Text.Trim();
+        if (text.Length > 0)
+        {
+            query = query.Where(item => MatchesSimple(item, text));
+        }
+
+        var ordered = query.ToArray();
+
+        _suppressCheck = true;
+        _list.BeginUpdate();
+        _list.Items.Clear();
+        _list.Items.AddRange(ordered.Select(CreateSimpleItem).ToArray());
+        _list.EndUpdate();
+        _suppressCheck = false;
+
+        var hidden = ordered.Count(item => !item.IsShown);
+        var classic = ClassicMenuService.IsEnabled() ? "已开启" : "未开启";
+        _statusLabel.Text = $"场景：{_scene.DisplayName()} · 共 {ordered.Length} 项 · 已隐藏 {hidden} 项 · 经典菜单：{classic}（实验）";
+    }
+
+    private static bool MatchesSimple(SimpleMenuItem item, string text) =>
+        item.DisplayName.Contains(text, StringComparison.CurrentCultureIgnoreCase)
+        || (item.Publisher?.Contains(text, StringComparison.CurrentCultureIgnoreCase) ?? false)
+        || item.Sources.Any(source => source.RegistryPath.Contains(text, StringComparison.OrdinalIgnoreCase));
+
+    private void RebuildAdvancedList()
+    {
         var filter = _locationBox.SelectedItem as LocationFilter ?? new LocationFilter("全部位置", _ => true);
         IEnumerable<MenuEntry> query = _entries.Where(filter.Match);
 
@@ -220,6 +352,51 @@ public sealed class MainForm : Form
             || entry.RegistryPath.Contains(text, StringComparison.OrdinalIgnoreCase);
     }
 
+    private ListViewItem CreateSimpleItem(SimpleMenuItem item)
+    {
+        var primary = item.Sources[0];
+        var row = new ListViewItem(item.DisplayName)
+        {
+            Tag = item,
+            Checked = item.IsShown,
+            ToolTipText = item.IsUnsupported
+                ? item.NoteText
+                : string.Join(Environment.NewLine, item.Sources.Select(source => source.RegistryPath).Distinct()),
+        };
+
+        ApplyIcon(row, primary);
+        row.SubItems.Add(item.StateText);
+        row.SubItems.Add(item.Publisher ?? "—");
+        row.SubItems.Add(item.NoteText);
+
+        if (!item.IsShown)
+        {
+            row.ForeColor = Color.Gray;
+        }
+        else if (item.IsUnsupported || item.IsPartiallyHidden)
+        {
+            row.ForeColor = Color.FromArgb(140, 140, 140);
+        }
+
+        return row;
+    }
+
+    private void ApplyIcon(ListViewItem row, MenuEntry entry)
+    {
+        var icon = _icons.ForEntry(entry);
+        if (icon == null)
+        {
+            return;
+        }
+
+        if (!_imageList.Images.ContainsKey(entry.Id))
+        {
+            _imageList.Images.Add(entry.Id, icon);
+        }
+
+        row.ImageKey = entry.Id;
+    }
+
     private ListViewItem CreateItem(MenuEntry entry)
     {
         var item = new ListViewItem(entry.DisplayName)
@@ -229,16 +406,7 @@ public sealed class MainForm : Form
             ToolTipText = entry.RegistryPath,
         };
 
-        var icon = _icons.ForEntry(entry);
-        if (icon != null)
-        {
-            if (!_imageList.Images.ContainsKey(entry.Id))
-            {
-                _imageList.Images.Add(entry.Id, icon);
-            }
-
-            item.ImageKey = entry.Id;
-        }
+        ApplyIcon(item, entry);
 
         item.SubItems.Add(entry.StateText);
         item.SubItems.Add(entry.KindText + (entry.IsSystem ? "·系统" : string.Empty));
@@ -272,7 +440,32 @@ public sealed class MainForm : Form
 
     private void OnItemChecked(object? sender, ItemCheckedEventArgs e)
     {
-        if (_suppressCheck || e.Item.Tag is not MenuEntry entry)
+        if (_suppressCheck)
+        {
+            return;
+        }
+
+        if (e.Item.Tag is SimpleMenuItem simple)
+        {
+            var wantShown = e.Item.Checked;
+            e.Item.Checked = simple.IsShown;
+
+            if (simple.IsUnsupported)
+            {
+                MessageBox.Show(this, "该菜单项是新型命令（ExplorerCommand），当前版本暂不支持隐藏，已列入后续计划。", "右键菜单编辑器", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            if (wantShown == simple.IsShown)
+            {
+                return;
+            }
+
+            ApplySimpleToggle(simple, hide: !wantShown);
+            return;
+        }
+
+        if (e.Item.Tag is not MenuEntry entry)
         {
             return;
         }
@@ -301,6 +494,79 @@ public sealed class MainForm : Form
         }
 
         ApplyToggle(entry, disable: !wantsEnabled);
+    }
+
+    private void ApplySimpleToggle(SimpleMenuItem item, bool hide)
+    {
+        var title = $"{(hide ? "隐藏" : "显示")}「{item.DisplayName}」？";
+        var lines = new List<string>
+        {
+            $"场景：{_scene.DisplayName()}",
+            hide ? "将把它从右键菜单中隐藏，之后可随时恢复。" : "将让它重新出现在右键菜单中。",
+        };
+
+        if (item.Sources.Count > 1)
+        {
+            lines.Add($"该菜单项在系统中有 {item.Sources.Count} 处注册，将一并处理。");
+        }
+
+        var warning = item.IsSystem ? "这是系统关键项，隐藏后可能影响文件夹的正常打开操作。" : null;
+
+        if (!ConfirmDialog.Show(this, title, string.Join(Environment.NewLine, lines), warning, hide ? "确认隐藏" : "确认显示", _icons.ForEntry(item.Sources[0])))
+        {
+            return;
+        }
+
+        RunToggleMany(item, hide ? "disable" : "enable");
+    }
+
+    private void ShowSimpleDetail(SimpleMenuItem item)
+    {
+        var representative = item.ToggleRepresentatives().FirstOrDefault() ?? item.Sources[0];
+        var note = item.Sources.Count > 1
+            ? $"该菜单项在系统中共有 {item.Sources.Count} 处注册，这里显示的是其中一处；隐藏时会一并处理。"
+            : null;
+
+        if (!DetailDialog.Show(this, representative, _icons.ForEntry(representative), note) || item.IsUnsupported)
+        {
+            return;
+        }
+
+        ApplySimpleToggle(item, hide: item.IsShown);
+    }
+
+    private void RunToggleMany(SimpleMenuItem item, string action)
+    {
+        try
+        {
+            foreach (var entry in item.ToggleRepresentatives())
+            {
+                var target = entry.ToToggleTarget();
+                if (action == "disable")
+                {
+                    _toggles.Disable(target);
+                }
+                else
+                {
+                    _toggles.Enable(target);
+                }
+
+                _journal.Append(JournalRecord.FromToggle(target, action));
+            }
+
+            ExplorerService.NotifyShellChanged();
+        }
+        catch (Exception exception)
+        {
+            var message = exception is UnauthorizedAccessException or System.Security.SecurityException
+                ? "没有权限修改该注册表项，请以管理员身份运行。"
+                : exception.Message;
+            MessageBox.Show(this, "操作失败：" + message, "右键菜单编辑器", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            RefreshEntries();
+        }
     }
 
     private void ApplyToggle(MenuEntry entry, bool disable)
@@ -371,7 +637,18 @@ public sealed class MainForm : Form
 
     private void OnItemActivate(object? sender, EventArgs e)
     {
-        if (_list.SelectedItems.Count == 0 || _list.SelectedItems[0].Tag is not MenuEntry entry)
+        if (_list.SelectedItems.Count == 0)
+        {
+            return;
+        }
+
+        if (_list.SelectedItems[0].Tag is SimpleMenuItem simple)
+        {
+            ShowSimpleDetail(simple);
+            return;
+        }
+
+        if (_list.SelectedItems[0].Tag is not MenuEntry entry)
         {
             return;
         }
@@ -489,7 +766,7 @@ public sealed class MainForm : Form
     {
         MessageBox.Show(
             this,
-            "右键菜单编辑器 v1.0.0" + Environment.NewLine + Environment.NewLine +
+            $"右键菜单编辑器 v{Application.ProductVersion}" + Environment.NewLine + Environment.NewLine +
             "非破坏性地禁用与恢复资源管理器右键菜单项：" + Environment.NewLine +
             "· 静态菜单项：写入 LegacyDisable 值（可随时删除还原）" + Environment.NewLine +
             "· COM 扩展：写入 Shell Extensions\\Blocked 屏蔽列表" + Environment.NewLine +
