@@ -251,6 +251,11 @@ public sealed class MainForm : Form
 
     private void RefreshEntries()
     {
+        if (IsDisposed)
+        {
+            return;
+        }
+
         UseWaitCursor = true;
         try
         {
@@ -262,6 +267,16 @@ public sealed class MainForm : Form
         {
             UseWaitCursor = false;
         }
+    }
+
+    private void RequestRefresh()
+    {
+        if (IsDisposed || !IsHandleCreated)
+        {
+            return;
+        }
+
+        BeginInvoke(new Action(RefreshEntries));
     }
 
     private void RebuildList()
@@ -572,7 +587,7 @@ public sealed class MainForm : Form
         }
         finally
         {
-            RefreshEntries();
+            RequestRefresh();
         }
     }
 
@@ -638,7 +653,7 @@ public sealed class MainForm : Form
         }
         finally
         {
-            RefreshEntries();
+            RequestRefresh();
         }
     }
 
