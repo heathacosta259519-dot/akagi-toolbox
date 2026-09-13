@@ -10,7 +10,10 @@ public sealed class ScannerSandboxTests : IDisposable
     private const string VerbKey = @"SOFTWARE\Classes\Directory\Background\shell\AkagiToolboxTestVerb";
     private const string CascadeKey = @"SOFTWARE\Classes\Directory\Background\shell\AkagiToolboxTestCascade";
     private const string HandlerKey = @"SOFTWARE\Classes\*\shellex\ContextMenuHandlers\AkagiToolboxTestHandler";
+    private const string GhostHandlerKey = @"SOFTWARE\Classes\*\shellex\ContextMenuHandlers\AkagiToolboxTestGhost";
     private const string TestClsid = "{DEADBEEF-1234-5678-9ABC-DEF012345678}";
+    private const string GhostClsid = "{DEADBEEF-9999-5678-9ABC-DEF012345678}";
+    private const string TestClsidKey = @"SOFTWARE\Classes\CLSID\{DEADBEEF-1234-5678-9ABC-DEF012345678}";
 
     public ScannerSandboxTests()
     {
@@ -35,6 +38,16 @@ public sealed class ScannerSandboxTests : IDisposable
         {
             handler.SetValue(null, TestClsid);
         }
+
+        using (var handlers = Registry.CurrentUser.CreateSubKey(@"SOFTWARE\Classes\*\shellex\ContextMenuHandlers"))
+        {
+            using var ghost = handlers.CreateSubKey("AkagiToolboxTestGhost");
+            ghost.SetValue(null, GhostClsid);
+        }
+
+        using var clsid = Registry.CurrentUser.CreateSubKey(TestClsidKey);
+        using var server = clsid.CreateSubKey("InprocServer32");
+        server.SetValue(null, @"C:\Program Files\AkagiToolboxTest\shell.dll");
     }
 
     [Fact]
@@ -75,10 +88,26 @@ public sealed class ScannerSandboxTests : IDisposable
         Assert.Equal(LocationKind.DirectoryBackground, child.Location);
     }
 
+    [Fact]
+    public void Handlers_without_a_loadable_server_are_marked_inactive()
+    {
+        var entries = new RegistryScanner(new PublisherResolver()).ScanAll();
+
+        var active = entries.Single(entry => entry.Id == "handler|CurrentUser|X64|*|AkagiToolboxTestHandler");
+        Assert.False(active.IsInactive);
+        Assert.Equal("AkagiToolboxTest", active.Publisher);
+
+        var ghost = entries.Single(entry => entry.Id == "handler|CurrentUser|X64|*|AkagiToolboxTestGhost");
+        Assert.True(ghost.IsInactive);
+        Assert.Null(ghost.Publisher);
+    }
+
     public void Dispose()
     {
         Registry.CurrentUser.DeleteSubKeyTree(VerbKey, false);
         Registry.CurrentUser.DeleteSubKeyTree(CascadeKey, false);
         Registry.CurrentUser.DeleteSubKeyTree(HandlerKey, false);
+        Registry.CurrentUser.DeleteSubKeyTree(GhostHandlerKey, false);
+        Registry.CurrentUser.DeleteSubKeyTree(TestClsidKey, false);
     }
 }

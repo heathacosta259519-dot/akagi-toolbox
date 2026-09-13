@@ -194,6 +194,33 @@ public sealed class SimpleMenuBuilderTests
         Assert.Empty(SimpleMenuBuilder.Build(entries, MenuScene.Files));
     }
 
+    [Fact]
+    public void Inactive_handlers_are_left_out_of_the_menu_view()
+    {
+        var ghost = Com("{77777777-7777-7777-7777-777777777777}", RegistryViewKind.X64, HiveScope.Machine, LocationKind.AllFiles, "WinRAR32", isInactive: true);
+        var real = Com("{88888888-8888-8888-8888-888888888888}", RegistryViewKind.X64, HiveScope.Machine, LocationKind.AllFiles, "WinRAR", publisher: "WinRAR");
+
+        var items = SimpleMenuBuilder.Build([ghost, real], MenuScene.Files);
+
+        var item = Assert.Single(items);
+        Assert.Equal("WinRAR", item.DisplayName);
+    }
+
+    [Fact]
+    public void Items_carry_their_owner_program()
+    {
+        var entries = new[]
+        {
+            Com("{88888888-8888-8888-8888-888888888888}", RegistryViewKind.X64, HiveScope.Machine, LocationKind.AllFiles, "7-Zip", publisher: "7-Zip"),
+            Static("static|Machine|sys", "工作文件夹", LocationKind.AllFiles, publisher: "Windows"),
+        };
+
+        var items = SimpleMenuBuilder.Build(entries, MenuScene.Files);
+
+        Assert.Equal("7-Zip", items.Single(item => item.DisplayName == "7-Zip").Owner);
+        Assert.Equal("Windows", items.Single(item => item.DisplayName == "工作文件夹").Owner);
+    }
+
     private static MenuEntry Static(
         string id,
         string name,
@@ -203,7 +230,9 @@ public sealed class SimpleMenuBuilderTests
         string? parentId = null,
         int indent = 0,
         bool hasChildren = false,
-        bool isSystem = false) => new()
+        bool isSystem = false,
+        string? publisher = null,
+        bool isInactive = false) => new()
     {
         Id = id,
         DisplayName = name,
@@ -217,6 +246,8 @@ public sealed class SimpleMenuBuilderTests
         Indent = indent,
         HasChildren = hasChildren,
         IsSystem = isSystem,
+        IsInactive = isInactive,
+        Publisher = publisher,
     };
 
     private static MenuEntry Com(
@@ -225,7 +256,9 @@ public sealed class SimpleMenuBuilderTests
         HiveScope scope,
         LocationKind location,
         string name,
-        EntryState state = EntryState.Enabled) => new()
+        EntryState state = EntryState.Enabled,
+        string? publisher = null,
+        bool isInactive = false) => new()
     {
         Id = $"handler|{scope}|{view}|{location}|{name}",
         DisplayName = name,
@@ -237,6 +270,8 @@ public sealed class SimpleMenuBuilderTests
         KeyPath = $"key\\{scope}\\{view}\\{location}\\{name}",
         Clsid = clsid,
         State = state,
+        Publisher = publisher,
+        IsInactive = isInactive,
     };
 
     private static MenuEntry ExplorerCommand(string id, string name, LocationKind location) => new()
