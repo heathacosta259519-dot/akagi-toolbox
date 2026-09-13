@@ -7,6 +7,7 @@ public sealed class PublisherResolver
 {
     private readonly Dictionary<string, string?> _fileCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string?> _serverPathCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string?> _descriptionCache = new(StringComparer.OrdinalIgnoreCase);
 
     public string? FromFile(string? path)
     {
@@ -35,6 +36,41 @@ public sealed class PublisherResolver
         var result = FindServerPath(clsid);
         _serverPathCache[clsid] = result;
         return result;
+    }
+
+    public string? DescriptionFromFile(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        if (_descriptionCache.TryGetValue(path, out var cached))
+        {
+            return cached;
+        }
+
+        var result = ResolveDescription(path);
+        _descriptionCache[path] = result;
+        return result;
+    }
+
+    private static string? ResolveDescription(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+
+            var description = FileVersionInfo.GetVersionInfo(path).FileDescription?.Trim();
+            return string.IsNullOrWhiteSpace(description) ? null : description;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string? Resolve(string path)

@@ -14,7 +14,10 @@ public sealed class MenuEntry
     public string? Clsid { get; init; }
     public string? IconSource { get; init; }
     public string? Publisher { get; init; }
+    public string? ParentId { get; init; }
+    public int Indent { get; init; }
     public bool IsSystem { get; init; }
+    public bool HasChildren { get; set; }
     public EntryState State { get; set; } = EntryState.Enabled;
     public string? StateDetail { get; set; }
 

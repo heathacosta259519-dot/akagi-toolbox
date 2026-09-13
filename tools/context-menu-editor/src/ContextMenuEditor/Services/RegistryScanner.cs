@@ -5,6 +5,8 @@ namespace ContextMenuEditor.Services;
 
 public sealed class RegistryScanner
 {
+    private const int MaxCascadeDepth = 3;
+
     private readonly PublisherResolver _publishers;
 
     public RegistryScanner(PublisherResolver publishers)
@@ -30,8 +32,22 @@ public sealed class RegistryScanner
         }
 
         ApplyBlockedStates(entries, blocked);
+        ApplyParentFlags(entries);
         AddOrphanEntries(entries, blocked, handlerClsids);
         return entries;
+    }
+
+    private static void ApplyParentFlags(List<MenuEntry> entries)
+    {
+        var parents = entries
+            .Where(entry => entry.ParentId != null)
+            .Select(entry => entry.ParentId!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var entry in entries.Where(entry => parents.Contains(entry.Id)))
+        {
+            entry.HasChildren = true;
+        }
     }
 
     private void ScanStatics(HiveScope scope, List<MenuEntry> entries)
@@ -58,12 +74,125 @@ public sealed class RegistryScanner
                     continue;
                 }
 
-                entries.Add(CreateStaticEntry(scope, location, verbName, verb));
+                var keyPath = $@"{location.SubPath}\shell\{verbName}";
+                var entry = CreateStaticEntry(scope, location, verbName, verb, keyPath, parentId: null, indent: 0);
+                entries.Add(entry);
+                ScanCascade(scope, location, verb, entry, keyPath, entries, depth: 1);
             }
         }
     }
 
-    private MenuEntry CreateStaticEntry(HiveScope scope, LocationDefinition location, string verbName, RegistryKey verb)
+    private void ScanCascade(
+        HiveScope scope,
+        LocationDefinition location,
+        RegistryKey verb,
+        MenuEntry parent,
+        string parentKeyPath,
+        List<MenuEntry> entries,
+        int depth)
+    {
+        if (depth > MaxCascadeDepth)
+        {
+            return;
+        }
+
+        foreach (var (childScope, containerPath) in CascadeContainers(scope, verb, parentKeyPath))
+        {
+            using var baseKey = RegistryKey.OpenBaseKey(ToHive(childScope), RegistryView.Registry64);
+            using var container = OpenCascadeContainer(baseKey, $@"Software\Classes\{containerPath}");
+            if (container == null)
+            {
+                continue;
+            }
+
+            foreach (var childName in container.GetSubKeyNames())
+            {
+                using var child = container.OpenSubKey(childName);
+                if (child == null)
+                {
+                    continue;
+                }
+
+                var childPath = $@"{containerPath}\{childName}";
+                var childEntry = CreateStaticEntry(childScope, location, childName, child, childPath, parent.Id, depth);
+                entries.Add(childEntry);
+                ScanCascade(childScope, location, child, childEntry, childPath, entries, depth + 1);
+            }
+        }
+    }
+
+    private static List<(HiveScope Scope, string KeyPath)> CascadeContainers(HiveScope scope, RegistryKey verb, string parentKeyPath)
+    {
+        var containers = new List<(HiveScope, string)>();
+
+        if (!string.IsNullOrWhiteSpace(verb.GetValue("SubCommands") as string))
+        {
+            containers.Add((scope, $@"{parentKeyPath}\shell"));
+        }
+
+        var extended = verb.GetValue("ExtendedSubCommandsKey") as string;
+        if (!string.IsNullOrWhiteSpace(extended))
+        {
+            var resolved = ResolveExtendedContainer(scope, extended);
+            if (resolved != null)
+            {
+                containers.Add(resolved.Value);
+            }
+        }
+
+        return containers;
+    }
+
+    private static (HiveScope Scope, string KeyPath)? ResolveExtendedContainer(HiveScope scope, string value)
+    {
+        const string classesPrefix = @"Software\Classes\";
+        var trimmed = value.Trim().TrimStart('\\');
+        var relative = trimmed.StartsWith(classesPrefix, StringComparison.OrdinalIgnoreCase)
+            ? trimmed[classesPrefix.Length..]
+            : trimmed;
+
+        var scopes = scope == HiveScope.CurrentUser
+            ? new[] { HiveScope.CurrentUser, HiveScope.Machine }
+            : new[] { HiveScope.Machine, HiveScope.CurrentUser };
+
+        foreach (var candidate in new[] { $@"{relative}\shell", relative })
+        {
+            foreach (var candidateScope in scopes)
+            {
+                using var baseKey = RegistryKey.OpenBaseKey(ToHive(candidateScope), RegistryView.Registry64);
+                using var key = baseKey.OpenSubKey(classesPrefix + candidate);
+                if (key != null && key.GetSubKeyNames().Length > 0)
+                {
+                    return (candidateScope, candidate);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static RegistryKey? OpenCascadeContainer(RegistryKey baseKey, string keyPath)
+    {
+        using var direct = baseKey.OpenSubKey(keyPath);
+        if (direct != null)
+        {
+            return baseKey.OpenSubKey(keyPath);
+        }
+
+        var withoutShell = keyPath.EndsWith(@"\shell", StringComparison.OrdinalIgnoreCase)
+            ? keyPath[..^@"\shell".Length]
+            : keyPath;
+        return baseKey.OpenSubKey(withoutShell);
+    }
+
+    private MenuEntry CreateStaticEntry(
+        HiveScope scope,
+        LocationDefinition location,
+        string verbName,
+        RegistryKey verb,
+        string keyPath,
+        string? parentId,
+        int indent)
     {
         var muiVerb = verb.GetValue("MUIVerb") as string;
         var keyDefault = verb.GetValue(null) as string;
@@ -83,14 +212,16 @@ public sealed class RegistryScanner
 
         return new MenuEntry
         {
-            Id = $"static|{scope}|{location.SubPath}|{verbName}",
+            Id = parentId == null ? $"static|{scope}|{location.SubPath}|{verbName}" : $"static|{scope}|{keyPath}",
             DisplayName = EntryNameResolver.ForVerb(muiVerb, keyDefault, verbName),
             Kind = kind,
             Scope = scope,
             View = RegistryViewKind.X64,
             Location = location.Kind,
-            RegistryPath = BuildRegistryPath(scope, RegistryViewKind.X64, $@"{location.SubPath}\shell\{verbName}"),
-            KeyPath = $@"{location.SubPath}\shell\{verbName}",
+            RegistryPath = BuildRegistryPath(scope, RegistryViewKind.X64, keyPath),
+            KeyPath = keyPath,
+            ParentId = parentId,
+            Indent = indent,
             Command = command ?? delegateExecute ?? explorerCommand,
             Clsid = clsid,
             IconSource = resolvedIcon,
@@ -120,7 +251,8 @@ public sealed class RegistryScanner
             foreach (var handlerName in root.GetSubKeyNames())
             {
                 using var handler = root.OpenSubKey(handlerName);
-                var clsid = ClsidNormalizer.Normalize(handler?.GetValue(null) as string);
+                var handlerValue = handler?.GetValue(null) as string;
+                var clsid = ClsidNormalizer.Normalize(handlerValue) ?? ClsidNormalizer.Normalize(handlerName);
                 if (clsid != null)
                 {
                     handlerClsids[view].Add(clsid);
@@ -131,7 +263,11 @@ public sealed class RegistryScanner
                 entries.Add(new MenuEntry
                 {
                     Id = $"handler|{scope}|{view}|{location.SubPath}|{handlerName}",
-                    DisplayName = EntryNameResolver.Clean(handlerName),
+                    DisplayName = EntryNameResolver.ForHandler(
+                        handlerName,
+                        ResolveClsidName(clsid),
+                        _publishers.DescriptionFromFile(serverPath),
+                        handlerValue),
                     Kind = EntryKind.ComHandler,
                     Scope = scope,
                     View = view,
@@ -145,6 +281,31 @@ public sealed class RegistryScanner
                 });
             }
         }
+    }
+
+    private static string? ResolveClsidName(string? clsid)
+    {
+        if (clsid == null)
+        {
+            return null;
+        }
+
+        foreach (var scope in new[] { HiveScope.Machine, HiveScope.CurrentUser })
+        {
+            foreach (var view in new[] { RegistryViewKind.X64, RegistryViewKind.X86 })
+            {
+                using var key = RegistryKey
+                    .OpenBaseKey(ToHive(scope), ToView(view))
+                    .OpenSubKey($@"SOFTWARE\Classes\CLSID\{clsid}");
+                var name = (key?.GetValue(null) as string)?.Trim();
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    return name;
+                }
+            }
+        }
+
+        return null;
     }
 
     private static void ApplyBlockedStates(List<MenuEntry> entries, Dictionary<(HiveScope Scope, RegistryViewKind View), HashSet<string>> blocked)

@@ -16,6 +16,26 @@ public static class EntryNameResolver
         return Clean(verbKeyName);
     }
 
+    public static string ForHandler(string keyName, params string?[] candidates)
+    {
+        var name = Clean(keyName);
+        if (ClsidNormalizer.Normalize(keyName) == null)
+        {
+            return name;
+        }
+
+        foreach (var candidate in candidates)
+        {
+            var resolved = Clean(candidate);
+            if (resolved.Length > 0)
+            {
+                return resolved;
+            }
+        }
+
+        return name;
+    }
+
     public static string Clean(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw))

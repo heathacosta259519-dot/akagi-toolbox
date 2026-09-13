@@ -7,6 +7,7 @@ public enum MenuScene
     FolderBackground,
     DesktopBackground,
     Drive,
+    AllObjects,
 }
 
 public static class MenuScenes
@@ -18,15 +19,17 @@ public static class MenuScenes
         MenuScene.FolderBackground,
         MenuScene.DesktopBackground,
         MenuScene.Drive,
+        MenuScene.AllObjects,
     ];
 
     public static string DisplayName(this MenuScene scene) => scene switch
     {
-        MenuScene.Files => "文件右键",
-        MenuScene.Folders => "文件夹右键",
+        MenuScene.Files => "文件",
+        MenuScene.Folders => "文件夹",
         MenuScene.FolderBackground => "文件夹空白处",
         MenuScene.DesktopBackground => "桌面空白处",
-        _ => "驱动器右键",
+        MenuScene.Drive => "驱动器",
+        _ => "所有对象",
     };
 
     public static IReadOnlyList<LocationKind> Locations(this MenuScene scene) => scene switch
@@ -35,6 +38,7 @@ public static class MenuScenes
         MenuScene.Folders => [LocationKind.Directory, LocationKind.Folder, LocationKind.AllFilesystemObjects],
         MenuScene.FolderBackground => [LocationKind.DirectoryBackground],
         MenuScene.DesktopBackground => [LocationKind.DesktopBackground],
-        _ => [LocationKind.Drive],
+        MenuScene.Drive => [LocationKind.Drive],
+        _ => [LocationKind.AllFilesystemObjects],
     };
 }

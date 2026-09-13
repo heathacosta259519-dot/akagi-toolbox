@@ -15,9 +15,8 @@ public sealed class MainForm : Form
     private readonly List<MenuEntry> _entries = [];
     private readonly ComboBox _modeBox = new();
     private readonly ComboBox _locationBox = new();
-    private readonly ComboBox _sceneBox = new();
+    private readonly FlowLayoutPanel _sceneTabs = new();
     private readonly Label _locationLabel = new();
-    private readonly Label _sceneLabel = new();
     private readonly TextBox _searchBox = new();
     private readonly CheckBox _onlyDisabled = new();
     private readonly CheckBox _classicMenuBox = new();
@@ -89,20 +88,34 @@ public sealed class MainForm : Form
         _locationBox.SelectedIndexChanged += (_, _) => RebuildList();
         top.Controls.Add(_locationBox);
 
-        _sceneLabel.Text = "场景：";
-        _sceneLabel.AutoSize = true;
-        _sceneLabel.Margin = new Padding(0, 7, 2, 0);
-        top.Controls.Add(_sceneLabel);
-        _sceneBox.DropDownStyle = ComboBoxStyle.DropDownList;
-        _sceneBox.Width = 190;
-        _sceneBox.Margin = new Padding(0, 3, 16, 3);
+        _sceneTabs.Dock = DockStyle.Top;
+        _sceneTabs.AutoSize = true;
+        _sceneTabs.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        _sceneTabs.WrapContents = true;
+        _sceneTabs.FlowDirection = FlowDirection.LeftToRight;
+        _sceneTabs.Padding = new Padding(10, 0, 10, 8);
         foreach (var scene in MenuScenes.All)
         {
-            _sceneBox.Items.Add(scene.DisplayName());
+            var tab = new RadioButton
+            {
+                Text = scene.DisplayName(),
+                Appearance = Appearance.Button,
+                TextAlign = ContentAlignment.MiddleCenter,
+                AutoSize = false,
+                Size = new Size(110, 30),
+                Tag = scene,
+                Checked = scene == _scene,
+                Margin = new Padding(0, 0, 4, 0),
+            };
+            tab.CheckedChanged += (_, _) =>
+            {
+                if (tab.Checked)
+                {
+                    OnSceneChanged(scene);
+                }
+            };
+            _sceneTabs.Controls.Add(tab);
         }
-
-        _sceneBox.SelectedIndex = MenuScenes.All.ToList().IndexOf(_scene);
-        top.Controls.Add(_sceneBox);
 
         top.Controls.Add(new Label { Text = "搜索：", AutoSize = true, Margin = new Padding(0, 7, 2, 0) });
         _searchBox.Width = 210;
@@ -147,13 +160,13 @@ public sealed class MainForm : Form
         statusBar.Items.Add(_statusLabel);
 
         Controls.Add(_list);
+        Controls.Add(_sceneTabs);
         Controls.Add(top);
         Controls.Add(statusBar);
 
         InitFilters();
 
         _modeBox.SelectedIndexChanged += (_, _) => OnModeChanged();
-        _sceneBox.SelectedIndexChanged += (_, _) => OnSceneChanged();
         ApplyModeVisibility();
     }
 
@@ -166,15 +179,9 @@ public sealed class MainForm : Form
         SaveSettings();
     }
 
-    private void OnSceneChanged()
+    private void OnSceneChanged(MenuScene scene)
     {
-        var index = _sceneBox.SelectedIndex;
-        if (index < 0 || index >= MenuScenes.All.Count)
-        {
-            return;
-        }
-
-        _scene = MenuScenes.All[index];
+        _scene = scene;
         RebuildList();
         SaveSettings();
     }
@@ -183,8 +190,7 @@ public sealed class MainForm : Form
     {
         _locationLabel.Visible = !_simpleMode;
         _locationBox.Visible = !_simpleMode;
-        _sceneLabel.Visible = _simpleMode;
-        _sceneBox.Visible = _simpleMode;
+        _sceneTabs.Visible = _simpleMode;
         _onlyDisabled.Text = _simpleMode ? "只看已隐藏" : "只看已禁用";
     }
 
@@ -300,7 +306,7 @@ public sealed class MainForm : Form
 
         var hidden = ordered.Count(item => !item.IsShown);
         var classic = ClassicMenuService.IsEnabled() ? "已开启" : "未开启";
-        _statusLabel.Text = $"场景：{_scene.DisplayName()} · 共 {ordered.Length} 项 · 已隐藏 {hidden} 项 · 经典菜单：{classic}（实验）";
+        _statusLabel.Text = $"{_scene.DisplayName()}右键 · 共 {ordered.Length} 项 · 已隐藏 {hidden} 项 · 经典菜单：{classic}（实验）";
     }
 
     private static bool MatchesSimple(SimpleMenuItem item, string text) =>
@@ -355,10 +361,11 @@ public sealed class MainForm : Form
     private ListViewItem CreateSimpleItem(SimpleMenuItem item)
     {
         var primary = item.Sources[0];
-        var row = new ListViewItem(item.DisplayName)
+        var row = new ListViewItem(item.HasChildren ? item.DisplayName + "  ▸" : item.DisplayName)
         {
             Tag = item,
             Checked = item.IsShown,
+            IndentCount = Math.Min(item.Indent, 4),
             ToolTipText = item.IsUnsupported
                 ? item.NoteText
                 : string.Join(Environment.NewLine, item.Sources.Select(source => source.RegistryPath).Distinct()),
@@ -369,7 +376,7 @@ public sealed class MainForm : Form
         row.SubItems.Add(item.Publisher ?? "—");
         row.SubItems.Add(item.NoteText);
 
-        if (!item.IsShown)
+        if (!item.IsShown || item.IsAncestorHidden)
         {
             row.ForeColor = Color.Gray;
         }
