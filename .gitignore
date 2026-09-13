@@ -1,0 +1,33 @@
+# ---- OS / 编辑器 ----
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.idea/
+.vscode/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- Node ----
+node_modules/
+dist/
+
+# ---- C / C++ / C# / Rust ----
+build/
+target/
+bin/
+obj/
+*.o
+*.obj
+*.pdb
+
+# ---- 杂项 ----
+*.log
