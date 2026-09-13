@@ -6,7 +6,7 @@ A collection of handy little tools.
 
 ## 工具列表
 
-- **[context-menu-editor](tools/context-menu-editor/)** — Windows 右键菜单编辑器：简单模式下直接对着"右键看到的菜单"开关项目（自动合并去重），高级模式可查看完整注册表细节；非破坏性、可随时恢复。
+- **[context-menu-editor](tools/context-menu-editor/)** — Windows 右键菜单编辑器：简单模式下按场景标签页（文件 / 文件夹 / 文件夹空白处…）直接对着「右键看到的菜单」开关项目，自动合并多处注册、展开子菜单；高级模式可查看完整注册表细节。非破坏性、可随时恢复。
 
 ## 目录约定
 
