@@ -25,6 +25,10 @@ public sealed class SettingsService
 
     public MenuScene Scene { get; private set; } = MenuScene.Files;
 
+    public string FileTarget { get; private set; } = string.Empty;
+
+    public string FolderTarget { get; private set; } = string.Empty;
+
     public void Reload()
     {
         try
@@ -42,16 +46,20 @@ public sealed class SettingsService
 
             SimpleMode = dto.SimpleMode ?? true;
             Scene = Enum.TryParse<MenuScene>(dto.Scene, out var scene) ? scene : MenuScene.Files;
+            FileTarget = dto.FileTarget ?? string.Empty;
+            FolderTarget = dto.FolderTarget ?? string.Empty;
         }
         catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException)
         {
         }
     }
 
-    public void Update(bool simpleMode, MenuScene scene)
+    public void Update(bool simpleMode, MenuScene scene, string? fileTarget = null, string? folderTarget = null)
     {
         SimpleMode = simpleMode;
         Scene = scene;
+        FileTarget = fileTarget ?? FileTarget;
+        FolderTarget = folderTarget ?? FolderTarget;
 
         try
         {
@@ -65,6 +73,8 @@ public sealed class SettingsService
             {
                 SimpleMode = simpleMode,
                 Scene = scene.ToString(),
+                FileTarget = FileTarget,
+                FolderTarget = FolderTarget,
             }));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -77,5 +87,9 @@ public sealed class SettingsService
         public bool? SimpleMode { get; set; }
 
         public string? Scene { get; set; }
+
+        public string? FileTarget { get; set; }
+
+        public string? FolderTarget { get; set; }
     }
 }

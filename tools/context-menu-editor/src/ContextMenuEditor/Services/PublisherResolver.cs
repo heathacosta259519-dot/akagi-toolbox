@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using ContextMenuEditor.Models;
 using Microsoft.Win32;
 
 namespace ContextMenuEditor.Services;
@@ -21,20 +22,21 @@ public sealed class PublisherResolver
             return cached;
         }
 
-        var result = Resolve(path);
+        var result = ProgramNames.FromPath(path) ?? Resolve(path);
         _fileCache[path] = result;
         return result;
     }
 
-    public string? ResolveServerPath(string clsid)
+    public string? ResolveServerPath(string clsid, RegistryViewKind? view = null)
     {
-        if (_serverPathCache.TryGetValue(clsid, out var cached))
+        var key = view == null ? clsid : clsid + "|" + view;
+        if (_serverPathCache.TryGetValue(key, out var cached))
         {
             return cached;
         }
 
-        var result = FindServerPath(clsid);
-        _serverPathCache[clsid] = result;
+        var result = FindServerPath(clsid, view);
+        _serverPathCache[key] = result;
         return result;
     }
 
@@ -99,15 +101,15 @@ public sealed class PublisherResolver
         }
     }
 
-    private static string? FindServerPath(string clsid)
+    private static string? FindServerPath(string clsid, RegistryViewKind? view)
     {
         foreach (var hive in new[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser })
         {
-            foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+            foreach (var candidate in ViewsFor(view))
             {
                 try
                 {
-                    using var baseKey = RegistryKey.OpenBaseKey(hive, view);
+                    using var baseKey = RegistryKey.OpenBaseKey(hive, candidate);
                     using var key = baseKey.OpenSubKey($@"SOFTWARE\Classes\CLSID\{clsid}\InprocServer32");
                     if (key?.GetValue(null) is string path && path.Trim().Length > 0)
                     {
@@ -122,4 +124,11 @@ public sealed class PublisherResolver
 
         return null;
     }
+
+    private static IEnumerable<RegistryView> ViewsFor(RegistryViewKind? view) => view switch
+    {
+        RegistryViewKind.X64 => [RegistryView.Registry64],
+        RegistryViewKind.X86 => [RegistryView.Registry32],
+        _ => [RegistryView.Registry64, RegistryView.Registry32],
+    };
 }

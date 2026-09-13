@@ -8,7 +8,7 @@ public static class SimpleMenuBuilder
     {
         var locations = scene.Locations().ToHashSet();
         var relevant = entries
-            .Where(entry => !entry.IsOrphan && locations.Contains(entry.Location))
+            .Where(entry => !entry.IsOrphan && !entry.IsInactive && locations.Contains(entry.Location))
             .ToArray();
 
         var items = GroupEntries(relevant).Select(CreateItem).ToList();
@@ -67,13 +67,18 @@ public static class SimpleMenuBuilder
     private static SimpleMenuItem CreateItem(List<MenuEntry> sources)
     {
         var primary = sources[0];
+        var publisher = sources
+            .Select(source => source.Publisher)
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+
         return new SimpleMenuItem
         {
             Id = GroupKeyFor(primary) ?? primary.Id,
             DisplayName = primary.DisplayName,
             Kind = primary.Kind,
             Sources = sources,
-            Publisher = sources.Select(source => source.Publisher).FirstOrDefault(publisher => !string.IsNullOrWhiteSpace(publisher)),
+            Publisher = publisher,
+            Owner = publisher ?? (primary.Kind == EntryKind.ComHandler ? "其他扩展" : "其他菜单项"),
             ParentId = primary.ParentId,
             Indent = primary.Indent,
             HasChildren = sources.Any(source => source.HasChildren),

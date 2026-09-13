@@ -10,6 +10,7 @@ public sealed class MainForm : Form
     private readonly ToggleService _toggles = new();
     private readonly JournalService _journal = new();
     private readonly SettingsService _settings = new();
+    private readonly MenuProbeRunner _probeRunner;
     private readonly IconService _icons = new();
     private readonly ImageList _imageList = new();
     private readonly List<MenuEntry> _entries = [];
@@ -17,6 +18,12 @@ public sealed class MainForm : Form
     private readonly ComboBox _locationBox = new();
     private readonly FlowLayoutPanel _sceneTabs = new();
     private readonly Label _locationLabel = new();
+    private readonly Label _targetLabel = new();
+    private readonly TextBox _targetBox = new();
+    private Button? _browseButton;
+    private string _fileTarget = string.Empty;
+    private string _folderTarget = string.Empty;
+    private bool _replicaFailed;
     private readonly TextBox _searchBox = new();
     private readonly CheckBox _onlyDisabled = new();
     private readonly CheckBox _classicMenuBox = new();
@@ -30,8 +37,11 @@ public sealed class MainForm : Form
     public MainForm()
     {
         _scanner = new RegistryScanner(_publishers);
+        _probeRunner = new MenuProbeRunner(Environment.ProcessPath ?? Application.ExecutablePath);
         _simpleMode = _settings.SimpleMode;
         _scene = _settings.Scene;
+        _fileTarget = _settings.FileTarget;
+        _folderTarget = _settings.FolderTarget;
         BuildLayout();
         Load += (_, _) =>
         {
@@ -117,6 +127,26 @@ public sealed class MainForm : Form
             _sceneTabs.Controls.Add(tab);
         }
 
+        _targetLabel.Text = "示例目标：";
+        _targetLabel.AutoSize = true;
+        _targetLabel.Margin = new Padding(0, 7, 2, 0);
+        top.Controls.Add(_targetLabel);
+
+        _targetBox.Width = 460;
+        _targetBox.Margin = new Padding(0, 3, 4, 3);
+        _targetBox.KeyDown += (_, args) =>
+        {
+            if (args.KeyCode == Keys.Enter)
+            {
+                args.SuppressKeyPress = true;
+                ApplyTargetFromBox();
+            }
+        };
+        top.Controls.Add(_targetBox);
+
+        _browseButton = CreateButton("浏览…", (_, _) => BrowseTarget());
+        top.Controls.Add(_browseButton);
+
         top.Controls.Add(new Label { Text = "搜索：", AutoSize = true, Margin = new Padding(0, 7, 2, 0) });
         _searchBox.Width = 210;
         _searchBox.Margin = new Padding(0, 3, 16, 3);
@@ -191,20 +221,120 @@ public sealed class MainForm : Form
         _locationLabel.Visible = !_simpleMode;
         _locationBox.Visible = !_simpleMode;
         _sceneTabs.Visible = _simpleMode;
+        _targetLabel.Visible = _simpleMode;
+        _targetBox.Visible = _simpleMode;
+        if (_browseButton != null)
+        {
+            _browseButton.Visible = _simpleMode;
+        }
+
         _onlyDisabled.Text = _simpleMode ? "只看已隐藏" : "只看已禁用";
     }
 
-    private void SaveSettings() => _settings.Update(_simpleMode, _scene);
+    private void SaveSettings() => _settings.Update(_simpleMode, _scene, _fileTarget, _folderTarget);
+
+    private void ApplyTargetFromBox()
+    {
+        var path = _targetBox.Text.Trim().Trim('"');
+        if (path.Length == 0)
+        {
+            return;
+        }
+
+        if (!File.Exists(path) && !Directory.Exists(path))
+        {
+            MessageBox.Show(this, "路径不存在：" + path, "右键菜单编辑器", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (Directory.Exists(path))
+        {
+            _folderTarget = path;
+        }
+        else
+        {
+            _fileTarget = path;
+        }
+
+        SaveSettings();
+        _probeRunner.InvalidateMenu();
+        RebuildList();
+    }
+
+    private void BrowseTarget()
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Title = "选择示例目标（文件；文件夹可直接在输入框里粘贴路径）",
+            Filter = "所有文件|*.*",
+            CheckFileExists = true,
+        };
+
+        var current = CurrentTarget();
+        if (File.Exists(current))
+        {
+            dialog.InitialDirectory = Path.GetDirectoryName(current);
+            dialog.FileName = Path.GetFileName(current);
+        }
+
+        if (dialog.ShowDialog(this) == DialogResult.OK)
+        {
+            _targetBox.Text = dialog.FileName;
+            ApplyTargetFromBox();
+        }
+    }
+
+    private string CurrentTarget()
+    {
+        switch (_scene)
+        {
+            case MenuScene.Files:
+                return EnsureTarget(ref _fileTarget, isFolder: false);
+            case MenuScene.DesktopBackground:
+                return Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+            case MenuScene.Drive:
+                var drive = DriveInfo.GetDrives().FirstOrDefault(item => item.IsReady) ?? DriveInfo.GetDrives().FirstOrDefault();
+                return drive?.RootDirectory.FullName ?? "C:\\";
+            default:
+                return EnsureTarget(ref _folderTarget, isFolder: true);
+        }
+    }
+
+    private string EnsureTarget(ref string target, bool isFolder)
+    {
+        if (!string.IsNullOrWhiteSpace(target) && (isFolder ? Directory.Exists(target) : File.Exists(target)))
+        {
+            return target;
+        }
+
+        var directory = Path.Combine(Path.GetTempPath(), "ContextMenuEditor");
+        Directory.CreateDirectory(directory);
+        target = isFolder
+            ? Directory.CreateDirectory(Path.Combine(directory, "示例文件夹")).FullName
+            : CreateSampleFile(Path.Combine(directory, "示例文件.txt"));
+        return target;
+    }
+
+    private static string CreateSampleFile(string path)
+    {
+        if (!File.Exists(path))
+        {
+            File.WriteAllText(path, "右键菜单编辑器的示例文件，可以把它改成你常右键的文件类型。" + Environment.NewLine);
+        }
+
+        return path;
+    }
 
     private void RebuildColumns()
     {
         _list.Columns.Clear();
+        _list.ShowGroups = false;
+
         if (_simpleMode)
         {
-            _list.Columns.Add("菜单项", 330);
+            _list.Columns.Add("菜单项", 420);
             _list.Columns.Add("状态", 90);
-            _list.Columns.Add("来源", 230);
-            _list.Columns.Add("说明", 200);
+            _list.Columns.Add("归属", 200);
             return;
         }
 
@@ -259,6 +389,7 @@ public sealed class MainForm : Form
         UseWaitCursor = true;
         try
         {
+            _probeRunner.InvalidateMenu();
             _entries.Clear();
             _entries.AddRange(_scanner.ScanAll());
             RebuildList();
@@ -297,31 +428,150 @@ public sealed class MainForm : Form
 
     private void RebuildSimpleList()
     {
-        IEnumerable<SimpleMenuItem> query = SimpleMenuBuilder.Build(_entries, _scene);
-
-        if (_onlyDisabled.Checked)
+        var items = SimpleMenuBuilder.Build(_entries, _scene);
+        var target = CurrentTarget();
+        if (!string.Equals(_targetBox.Text, target, StringComparison.OrdinalIgnoreCase))
         {
-            query = query.Where(item => !item.IsShown);
+            _targetBox.Text = target;
         }
 
-        var text = _searchBox.Text.Trim();
-        if (text.Length > 0)
-        {
-            query = query.Where(item => MatchesSimple(item, text));
-        }
+        var clsids = items
+            .SelectMany(item => item.Sources)
+            .Where(source => source.Kind == EntryKind.ComHandler && source.Clsid != null)
+            .Select(source => source.Clsid!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
-        var ordered = query.ToArray();
+        var replica = _probeRunner.Load(_scene, target, clsids);
+        var search = _searchBox.Text.Trim();
+        var onlyHidden = _onlyDisabled.Checked;
+
+        var menuCount = 0;
+        var hiddenCount = 0;
+        var owners = new HashSet<string>(StringComparer.CurrentCultureIgnoreCase);
 
         _suppressCheck = true;
         _list.BeginUpdate();
         _list.Items.Clear();
-        _list.Items.AddRange(ordered.Select(CreateSimpleItem).ToArray());
+        _list.Groups.Clear();
+
+        if (replica.HasMenu)
+        {
+            _replicaFailed = false;
+
+            if (!onlyHidden)
+            {
+                foreach (var row in MenuReplicaBuilder.Build(replica.Menu!, items, replica.TextToClsid))
+                {
+                    if (search.Length > 0 && !MatchesRow(row, search))
+                    {
+                        continue;
+                    }
+
+                    AddReplicaRow(row);
+                    if (row.IsSeparator)
+                    {
+                        continue;
+                    }
+
+                    menuCount++;
+                    if (row.Owner != null)
+                    {
+                        owners.Add(row.OwnerName);
+                    }
+                }
+            }
+
+            var hiddenItems = items
+                .Where(item => !item.IsShown)
+                .Where(item => search.Length == 0 || MatchesSimple(item, search))
+                .ToArray();
+
+            if (hiddenItems.Length > 0 && !onlyHidden && menuCount > 0)
+            {
+                _list.Items.Add(new ListViewItem("──────") { Tag = null, ForeColor = Color.Silver });
+            }
+
+            foreach (var item in hiddenItems)
+            {
+                AddRegistryRow(item);
+                hiddenCount++;
+                owners.Add(item.Owner);
+            }
+        }
+        else
+        {
+            _replicaFailed = true;
+            var fallback = items
+                .Where(item => !onlyHidden || !item.IsShown)
+                .Where(item => search.Length == 0 || MatchesSimple(item, search))
+                .ToArray();
+
+            foreach (var item in fallback)
+            {
+                AddRegistryRow(item);
+                menuCount++;
+                owners.Add(item.Owner);
+                if (!item.IsShown)
+                {
+                    hiddenCount++;
+                }
+            }
+        }
+
         _list.EndUpdate();
         _suppressCheck = false;
 
-        var hidden = ordered.Count(item => !item.IsShown);
         var classic = ClassicMenuService.IsEnabled() ? "已开启" : "未开启";
-        _statusLabel.Text = $"{_scene.DisplayName()}右键 · 共 {ordered.Length} 项 · 已隐藏 {hidden} 项 · 经典菜单：{classic}（实验）";
+        var source = replica.HasMenu ? "真实菜单" : "注册表视图（探测未成功）";
+        _statusLabel.Text = $"{_scene.DisplayName()}右键 · {source} · 菜单 {menuCount} 项 · 已隐藏 {hiddenCount} 项 · 归属 {owners.Count} 个程序 · 目标：{target} · 经典菜单：{classic}（实验）";
+    }
+
+    private static bool MatchesRow(MenuReplicaRow row, string text) =>
+        row.Text.Contains(text, StringComparison.CurrentCultureIgnoreCase)
+        || row.OwnerName.Contains(text, StringComparison.CurrentCultureIgnoreCase);
+
+    private void AddReplicaRow(MenuReplicaRow row)
+    {
+        if (row.IsSeparator)
+        {
+            _list.Items.Add(new ListViewItem("──────") { Tag = row, ForeColor = Color.Silver });
+            return;
+        }
+
+        var entry = new ListViewItem(row.Text)
+        {
+            Tag = row,
+            Checked = true,
+            IndentCount = Math.Min(row.Depth, 4),
+            ToolTipText = row.Owner != null && row.Owner.Sources.Count > 0
+                ? row.Owner.Sources[0].RegistryPath
+                : "这一项在注册表里没有对应的开关：可能是 Windows 自带的菜单项，或由程序在运行时生成。",
+        };
+
+        if (row.Owner != null && row.Owner.Sources.Count > 0)
+        {
+            ApplyIcon(entry, row.Owner.Sources[0]);
+        }
+
+        entry.SubItems.Add(row.CanToggle ? "显示中" : row.Owner == null ? "无开关" : "暂不支持");
+        entry.SubItems.Add(row.OwnerName);
+
+        if (!row.IsEnabled)
+        {
+            entry.ForeColor = Color.Gray;
+        }
+        else if (!row.CanToggle)
+        {
+            entry.ForeColor = Color.FromArgb(140, 140, 140);
+        }
+
+        _list.Items.Add(entry);
+    }
+
+    private void AddRegistryRow(SimpleMenuItem item)
+    {
+        _list.Items.Add(CreateSimpleItem(item));
     }
 
     private static bool MatchesSimple(SimpleMenuItem item, string text) =>
@@ -388,8 +638,7 @@ public sealed class MainForm : Form
 
         ApplyIcon(row, primary);
         row.SubItems.Add(item.StateText);
-        row.SubItems.Add(item.Publisher ?? "—");
-        row.SubItems.Add(item.NoteText);
+        row.SubItems.Add(item.Owner);
 
         if (!item.IsShown || item.IsAncestorHidden)
         {
@@ -464,6 +713,31 @@ public sealed class MainForm : Form
     {
         if (_suppressCheck)
         {
+            return;
+        }
+
+        if (e.Item.Tag is MenuReplicaRow replicaRow)
+        {
+            e.Item.Checked = true;
+
+            if (replicaRow.IsSeparator)
+            {
+                return;
+            }
+
+            if (replicaRow.Owner == null)
+            {
+                MessageBox.Show(this, "「" + replicaRow.Text + "」在注册表里没有对应的开关，无法隐藏（通常是 Windows 自带的项，或由程序在运行时生成）。", "右键菜单编辑器", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            if (!replicaRow.CanToggle)
+            {
+                MessageBox.Show(this, "该菜单项是新型命令（ExplorerCommand），当前版本暂不支持隐藏，已列入后续计划。", "右键菜单编辑器", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            ApplySimpleToggle(replicaRow.Owner, hide: true);
             return;
         }
 
@@ -661,6 +935,25 @@ public sealed class MainForm : Form
     {
         if (_list.SelectedItems.Count == 0)
         {
+            return;
+        }
+
+        if (_list.SelectedItems[0].Tag is MenuReplicaRow replicaRow)
+        {
+            if (replicaRow.IsSeparator)
+            {
+                return;
+            }
+
+            if (replicaRow.Owner != null)
+            {
+                ShowSimpleDetail(replicaRow.Owner);
+            }
+            else
+            {
+                MessageBox.Show(this, "「" + replicaRow.Text + "」是 Windows 自带的内置菜单项，没有独立的注册表开关。", "右键菜单编辑器", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+
             return;
         }
 

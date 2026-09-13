@@ -258,7 +258,8 @@ public sealed class RegistryScanner
                     handlerClsids[view].Add(clsid);
                 }
 
-                var serverPath = clsid != null ? _publishers.ResolveServerPath(clsid) : null;
+                var serverPath = clsid != null ? _publishers.ResolveServerPath(clsid, RegistryViewKind.X64) : null;
+                var isInactive = clsid == null || serverPath == null;
 
                 entries.Add(new MenuEntry
                 {
@@ -278,6 +279,7 @@ public sealed class RegistryScanner
                     Clsid = clsid,
                     IconSource = serverPath,
                     Publisher = _publishers.FromFile(serverPath),
+                    IsInactive = isInactive,
                 });
             }
         }

@@ -17,6 +17,7 @@ public sealed class MenuEntry
     public string? ParentId { get; init; }
     public int Indent { get; init; }
     public bool IsSystem { get; init; }
+    public bool IsInactive { get; init; }
     public bool HasChildren { get; set; }
     public EntryState State { get; set; } = EntryState.Enabled;
     public string? StateDetail { get; set; }
@@ -48,10 +49,12 @@ public sealed class MenuEntry
         }
     }
 
-    public string StateText => State switch
-    {
-        EntryState.Enabled => CanToggle ? "已启用" : "暂不支持",
-        EntryState.Disabled => "已禁用",
-        _ => "残留屏蔽",
-    };
+    public string StateText => IsInactive
+        ? "未注册"
+        : State switch
+        {
+            EntryState.Enabled => CanToggle ? "已启用" : "暂不支持",
+            EntryState.Disabled => "已禁用",
+            _ => "残留屏蔽",
+        };
 }

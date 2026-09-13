@@ -7,6 +7,7 @@ public sealed class SimpleMenuItem
     public required EntryKind Kind { get; init; }
     public required IReadOnlyList<MenuEntry> Sources { get; init; }
     public string? Publisher { get; init; }
+    public required string Owner { get; init; }
     public string? ParentId { get; init; }
     public int Indent { get; init; }
     public bool HasChildren { get; init; }
