@@ -24,6 +24,7 @@ public sealed class MainForm : Form
     private string _fileTarget = string.Empty;
     private string _folderTarget = string.Empty;
     private int _replicaGeneration;
+    private bool _inListNotification;
     private readonly TextBox _searchBox = new();
     private readonly CheckBox _onlyDisabled = new();
     private readonly CheckBox _classicMenuBox = new();
@@ -417,6 +418,12 @@ public sealed class MainForm : Form
             return;
         }
 
+        if (_inListNotification)
+        {
+            RequestRefresh();
+            return;
+        }
+
         if (_simpleMode)
         {
             RebuildSimpleList();
@@ -490,6 +497,12 @@ public sealed class MainForm : Form
             {
                 if (generation != _replicaGeneration || scene != _scene || !string.Equals(target, CurrentTarget(), StringComparison.OrdinalIgnoreCase))
                 {
+                    return;
+                }
+
+                if (_inListNotification)
+                {
+                    PostReplica(generation, scene, target, menu, handlerMap);
                     return;
                 }
 
@@ -788,6 +801,19 @@ public sealed class MainForm : Form
             return;
         }
 
+        _inListNotification = true;
+        try
+        {
+            HandleItemChecked(e);
+        }
+        finally
+        {
+            _inListNotification = false;
+        }
+    }
+
+    private void HandleItemChecked(ItemCheckedEventArgs e)
+    {
         if (e.Item.Tag is MenuReplicaRow replicaRow)
         {
             e.Item.Checked = true;
@@ -1004,6 +1030,19 @@ public sealed class MainForm : Form
     }
 
     private void OnItemActivate(object? sender, EventArgs e)
+    {
+        _inListNotification = true;
+        try
+        {
+            HandleItemActivate();
+        }
+        finally
+        {
+            _inListNotification = false;
+        }
+    }
+
+    private void HandleItemActivate()
     {
         if (_list.SelectedItems.Count == 0)
         {

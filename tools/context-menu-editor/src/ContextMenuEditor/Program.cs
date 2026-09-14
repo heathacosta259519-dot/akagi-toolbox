@@ -3,6 +3,7 @@ using System.Text.Json;
 using ContextMenuEditor.Forms;
 using ContextMenuEditor.Models;
 using ContextMenuEditor.Probe;
+using ContextMenuEditor.Services;
 
 namespace ContextMenuEditor;
 
@@ -35,8 +36,27 @@ internal static class Program
         Application.SetCompatibleTextRenderingDefault(false);
         Application.SetDefaultFont(new Font("Microsoft YaHei UI", 9F));
 
+        Application.ThreadException += (_, args) => ReportCrash(args.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            if (args.ExceptionObject is Exception exception)
+            {
+                ReportCrash(exception);
+            }
+        };
+
         Application.Run(new MainForm());
         return 0;
+    }
+
+    private static void ReportCrash(Exception exception)
+    {
+        CrashLogger.Log(exception);
+        MessageBox.Show(
+            "程序内部出现了一个错误，已记录到：" + Environment.NewLine + CrashLogger.LogPath + Environment.NewLine + Environment.NewLine + exception.Message,
+            "右键菜单编辑器",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Warning);
     }
 
     private static int RunProbe(string scene, string target, string outputPath)
