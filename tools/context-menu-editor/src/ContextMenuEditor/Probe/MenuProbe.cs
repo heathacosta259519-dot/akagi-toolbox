@@ -130,6 +130,8 @@ public static class MenuProbe
 
     internal static string ReadTextAt(IntPtr menu, uint index) => ReadText(menu, index);
 
+    internal static string CleanText(string raw) => Clean(raw);
+
     private sealed record ContextMenuHandle(IntPtr Pointer, ShellMenuInterop.IContextMenu Instance);
 
     private static void InitSubmenu(ShellMenuInterop.IContextMenu contextMenu, IntPtr submenu)

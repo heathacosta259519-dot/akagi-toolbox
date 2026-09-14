@@ -29,6 +29,15 @@ internal static class ShellMenuInterop
     internal static readonly Guid IidIContextMenu3 = new("BCFCE0A0-EC17-11D0-8D10-00A0C90F2719");
     internal static readonly Guid IidIUnknown = new("00000000-0000-0000-C000-000000000046");
     internal static readonly Guid IidIDataObject = new("0000010E-0000-0000-C000-000000000046");
+    internal static readonly Guid IidIExplorerCommand = new("a08ce4d0-fa25-44ab-b57c-c7b1c323e0b9");
+    internal static readonly Guid IidIShellItem = new("43826d1e-e718-42ee-bc55-a1e261c37bfe");
+    internal static readonly Guid IidIShellItemArray = new("b63ea76d-1f85-456f-a19c-48159efa858b");
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    internal static extern int SHCreateItemFromParsingName(string pszPath, IntPtr pbc, ref Guid riid, out IntPtr ppv);
+
+    [DllImport("shell32.dll")]
+    internal static extern int SHCreateShellItemArrayFromShellItem(IntPtr psi, ref Guid riid, out IntPtr ppv);
 
     [DllImport("ole32.dll")]
     internal static extern int CoCreateInstance(ref Guid rclsid, IntPtr pUnkOuter, uint dwClsContext, ref Guid riid, out IntPtr ppv);
@@ -45,6 +54,30 @@ internal static class ShellMenuInterop
     internal interface IShellExtInit
     {
         void Initialize(IntPtr pidlFolder, IntPtr pdtobj, IntPtr hkeyProgID);
+    }
+
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("a08ce4d0-fa25-44ab-b57c-c7b1c323e0b9")]
+    internal interface IExplorerCommand
+    {
+        [PreserveSig]
+        int GetTitle(IntPtr psiItemArray, out IntPtr ppszName);
+
+        [PreserveSig]
+        int GetIcon(IntPtr psiItemArray, out IntPtr ppszIcon);
+
+        [PreserveSig]
+        int GetToolTip(IntPtr psiItemArray, out IntPtr ppszInfotip);
+
+        [PreserveSig]
+        int GetCanonicalName(out Guid pguidCommandName);
+
+        [PreserveSig]
+        int GetState(IntPtr psiItemArray, bool fOkToBeSlow, out uint pCmdState);
+
+        [PreserveSig]
+        int Invoke(IntPtr psiItemArray, IntPtr pbc);
     }
 
     [DllImport("shell32.dll")]

@@ -28,7 +28,6 @@ public sealed class MenuEntry
 
     public bool CanToggle => Kind switch
     {
-        EntryKind.ExplorerCommand => false,
         EntryKind.ComHandler => Clsid != null,
         _ => true,
     };

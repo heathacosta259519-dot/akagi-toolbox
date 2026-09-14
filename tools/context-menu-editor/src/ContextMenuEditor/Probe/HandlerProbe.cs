@@ -11,10 +11,11 @@ public static class HandlerProbe
     private const uint IdCommandLast = 0x7FFF;
     private const int MaxDepth = 3;
 
-    public static HandlerProbeResult Run(string scene, string target, IEnumerable<string> clsids)
+    public static HandlerProbeResult Run(string scene, string target, IEnumerable<string> clsids, IEnumerable<string> commandClsids)
     {
         var result = new HandlerProbeResult();
         var isBackground = scene is "FolderBackground" or "DesktopBackground";
+        var itemArray = CreateItemArray(target);
 
         using var host = new ProbeHostWindow();
         var selection = Selection.Create(target, host.Handle, isBackground);
@@ -24,16 +25,90 @@ public static class HandlerProbe
             {
                 result.Handlers.Add(new HandlerProbeEntry { Clsid = clsid, Error = selection.Error });
             }
-
-            return result;
+        }
+        else
+        {
+            foreach (var clsid in clsids)
+            {
+                result.Handlers.Add(ProbeOne(clsid, selection, host.Handle));
+            }
         }
 
-        foreach (var clsid in clsids)
+        foreach (var clsid in commandClsids)
         {
-            result.Handlers.Add(ProbeOne(clsid, selection, host.Handle));
+            result.Handlers.Add(ProbeExplorerCommand(clsid, itemArray));
         }
 
         return result;
+    }
+
+    private static IntPtr CreateItemArray(string target)
+    {
+        var itemIid = ShellMenuInterop.IidIShellItem;
+        var hr = ShellMenuInterop.SHCreateItemFromParsingName(target, IntPtr.Zero, ref itemIid, out var item);
+        if (hr != 0 || item == IntPtr.Zero)
+        {
+            return IntPtr.Zero;
+        }
+
+        var arrayIid = ShellMenuInterop.IidIShellItemArray;
+        hr = ShellMenuInterop.SHCreateShellItemArrayFromShellItem(item, ref arrayIid, out var array);
+        return hr == 0 ? array : IntPtr.Zero;
+    }
+
+    private static HandlerProbeEntry ProbeExplorerCommand(string clsid, IntPtr itemArray)
+    {
+        var entry = new HandlerProbeEntry { Clsid = clsid };
+
+        try
+        {
+            var clsidGuid = new Guid(clsid);
+            var iid = ShellMenuInterop.IidIExplorerCommand;
+            var hr = ShellMenuInterop.CoCreateInstance(ref clsidGuid, IntPtr.Zero, ClsctxInprocServer, ref iid, out var pointer);
+            if (hr != 0 || pointer == IntPtr.Zero)
+            {
+                entry.Error = $"无法创建命令（0x{hr:X8}）";
+                return entry;
+            }
+
+            var command = (ShellMenuInterop.IExplorerCommand)Marshal.GetObjectForIUnknown(pointer);
+            CollectTitles(command, itemArray, entry.Texts, 0);
+        }
+        catch (Exception exception) when (exception is COMException or InvalidCastException or NotSupportedException or ArgumentException or FormatException)
+        {
+            entry.Error = exception.Message;
+        }
+
+        return entry;
+    }
+
+    private static void CollectTitles(ShellMenuInterop.IExplorerCommand command, IntPtr itemArray, List<string> texts, int depth)
+    {
+        var title = ReadTitle(command, itemArray);
+        if (!string.IsNullOrWhiteSpace(title))
+        {
+            texts.Add(title);
+        }
+    }
+
+    private static string? ReadTitle(ShellMenuInterop.IExplorerCommand command, IntPtr itemArray)
+    {
+        var hr = command.GetTitle(itemArray, out var pointer);
+        if (hr != 0 || pointer == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        try
+        {
+            var title = Marshal.PtrToStringUni(pointer);
+            var cleaned = string.IsNullOrWhiteSpace(title) ? null : MenuProbe.CleanText(title);
+            return string.IsNullOrEmpty(cleaned) ? null : cleaned;
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem(pointer);
+        }
     }
 
     private static HandlerProbeEntry ProbeOne(string clsid, Selection selection, IntPtr owner)

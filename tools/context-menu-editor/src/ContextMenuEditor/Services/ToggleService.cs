@@ -10,13 +10,12 @@ public sealed class ToggleService
         switch (target.Kind)
         {
             case EntryKind.StaticVerb:
+            case EntryKind.ExplorerCommand:
                 SetLegacyDisable(target, true);
                 break;
             case EntryKind.ComHandler when target.Clsid != null:
                 SetBlocked(target, true);
                 break;
-            case EntryKind.ExplorerCommand:
-                throw new NotSupportedException("该菜单项为新型命令（ExplorerCommand），当前版本暂不支持禁用。");
             default:
                 throw new NotSupportedException("该菜单项缺少可识别的标识，无法操作。");
         }
@@ -27,6 +26,7 @@ public sealed class ToggleService
         switch (target.Kind)
         {
             case EntryKind.StaticVerb:
+            case EntryKind.ExplorerCommand:
                 SetLegacyDisable(target, false);
                 break;
             case EntryKind.ComHandler when target.Clsid != null:

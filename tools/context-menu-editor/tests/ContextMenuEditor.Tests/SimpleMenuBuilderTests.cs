@@ -83,7 +83,7 @@ public sealed class SimpleMenuBuilderTests
 
         var names = SimpleMenuBuilder.Build(entries, MenuScene.Files).Select(item => item.DisplayName).ToArray();
 
-        Assert.Equal(["打开", "自定义项", "7-Zip", "baidunetdisk"], names);
+        Assert.Equal(["打开", "自定义项", "baidunetdisk", "7-Zip"], names);
     }
 
     [Fact]
@@ -160,15 +160,14 @@ public sealed class SimpleMenuBuilderTests
     }
 
     [Fact]
-    public void Explorer_command_items_are_marked_unsupported()
+    public void Explorer_command_verbs_are_toggleable()
     {
         var entries = new[] { ExplorerCommand("static|yun", "baidunetdisk", LocationKind.AllFiles) };
 
         var item = SimpleMenuBuilder.Build(entries, MenuScene.Files).Single();
 
-        Assert.True(item.IsUnsupported);
-        Assert.Equal("暂不支持", item.StateText);
-        Assert.Empty(item.ToggleRepresentatives());
+        Assert.False(item.IsUnsupported);
+        Assert.True(item.ToggleRepresentatives().Any());
     }
 
     [Fact]

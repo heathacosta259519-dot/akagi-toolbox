@@ -18,10 +18,11 @@ internal static class Program
             return RunProbe(args[1], args[2], args[3]);
         }
 
-        if (args.Length >= 5 && args[0] == "--probe-handlers")
+        if (args.Length >= 6 && args[0] == "--probe-handlers")
         {
-            return RunHandlerProbe(args[1], args[2], args[3], args[4]);
+            return RunHandlerProbe(args[1], args[2], args[3], args[4], args[5]);
         }
+
         using var mutex = new Mutex(true, MutexName, out var isFirstInstance);
         if (!isFirstInstance)
         {
@@ -54,13 +55,16 @@ internal static class Program
         return 0;
     }
 
-    private static int RunHandlerProbe(string scene, string target, string clsidList, string outputPath)
+    private static int RunHandlerProbe(string scene, string target, string clsidList, string commandClsidList, string outputPath)
     {
         HandlerProbeResult result;
         try
         {
-            var clsids = clsidList.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct();
-            result = HandlerProbe.Run(scene, target, clsids);
+            result = HandlerProbe.Run(
+                scene,
+                target,
+                Split(clsidList),
+                Split(commandClsidList));
         }
         catch (Exception exception)
         {
@@ -73,6 +77,9 @@ internal static class Program
         WriteJson(outputPath, result);
         return 0;
     }
+
+    private static IEnumerable<string> Split(string list) =>
+        list.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct();
 
     private static void WriteJson<T>(string outputPath, T payload)
     {

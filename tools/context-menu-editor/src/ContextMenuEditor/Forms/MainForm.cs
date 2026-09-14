@@ -23,7 +23,6 @@ public sealed class MainForm : Form
     private Button? _browseButton;
     private string _fileTarget = string.Empty;
     private string _folderTarget = string.Empty;
-    private bool _replicaFailed;
     private readonly TextBox _searchBox = new();
     private readonly CheckBox _onlyDisabled = new();
     private readonly CheckBox _classicMenuBox = new();
@@ -442,7 +441,14 @@ public sealed class MainForm : Form
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        var replica = _probeRunner.Load(_scene, target, clsids);
+        var commandClsids = items
+            .SelectMany(item => item.Sources)
+            .Where(source => source.Kind == EntryKind.ExplorerCommand && source.Clsid != null)
+            .Select(source => source.Clsid!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var replica = _probeRunner.Load(_scene, target, clsids, commandClsids);
         var search = _searchBox.Text.Trim();
         var onlyHidden = _onlyDisabled.Checked;
 
@@ -457,8 +463,6 @@ public sealed class MainForm : Form
 
         if (replica.HasMenu)
         {
-            _replicaFailed = false;
-
             if (!onlyHidden)
             {
                 foreach (var row in MenuReplicaBuilder.Build(replica.Menu!, items, replica.TextToClsid))
@@ -501,7 +505,6 @@ public sealed class MainForm : Form
         }
         else
         {
-            _replicaFailed = true;
             var fallback = items
                 .Where(item => !onlyHidden || !item.IsShown)
                 .Where(item => search.Length == 0 || MatchesSimple(item, search))
@@ -733,7 +736,7 @@ public sealed class MainForm : Form
 
             if (!replicaRow.CanToggle)
             {
-                MessageBox.Show(this, "该菜单项是新型命令（ExplorerCommand），当前版本暂不支持隐藏，已列入后续计划。", "右键菜单编辑器", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(this, "「" + replicaRow.Text + "」没有可用的注册表开关，无法隐藏。", "右键菜单编辑器", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 

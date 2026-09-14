@@ -90,6 +90,43 @@ public sealed class MenuReplicaBuilderTests
     }
 
     [Fact]
+    public void Submenu_children_inherit_the_parent_owner()
+    {
+        var menu = new MenuProbeResult
+        {
+            Items =
+            [
+                new MenuProbeItem
+                {
+                    Text = "BandiView",
+                    HasSubmenu = true,
+                    Children =
+                    [
+                        new MenuProbeItem { Text = "用 BandiView 浏览(3)", Depth = 1 },
+                        new MenuProbeItem { Text = "用 BandiView 转换(4)", Depth = 1 },
+                    ],
+                },
+            ],
+        };
+
+        var items = new[] { Com("BandiView", "{0002DEAD-9BF7-4CFA-8A5C-DE8679340001}", "BandiView") };
+        var textToClsid = new Dictionary<string, string>(StringComparer.CurrentCultureIgnoreCase)
+        {
+            ["BandiView"] = "{0002DEAD-9BF7-4CFA-8A5C-DE8679340001}",
+        };
+
+        var rows = MenuReplicaBuilder.Build(menu, items, textToClsid);
+
+        Assert.Equal(3, rows.Count);
+        Assert.All(rows, row =>
+        {
+            Assert.NotNull(row.Owner);
+            Assert.Equal("BandiView", row.OwnerName);
+            Assert.True(row.CanToggle);
+        });
+    }
+
+    [Fact]
     public void Built_in_items_have_no_owner_and_cannot_be_toggled()
     {
         var menu = new MenuProbeResult

@@ -30,7 +30,7 @@ public sealed class MenuProbeRunner
         _workDirectory = Path.Combine(Path.GetTempPath(), "ContextMenuEditor");
     }
 
-    public MenuReplica Load(MenuScene scene, string target, IReadOnlyList<string> clsids)
+    public MenuReplica Load(MenuScene scene, string target, IReadOnlyList<string> clsids, IReadOnlyList<string> commandClsids)
     {
         var key = $"{scene}|{target}";
         if (!string.Equals(_cachedKey, key, StringComparison.OrdinalIgnoreCase))
@@ -43,10 +43,10 @@ public sealed class MenuProbeRunner
 
         if (_cachedMenu is { Error: null })
         {
-            var handlerKey = key + "|" + string.Join(";", clsids);
+            var handlerKey = key + "|" + string.Join(";", clsids) + "|" + string.Join(";", commandClsids);
             if (!string.Equals(_cachedHandlerKey, handlerKey, StringComparison.OrdinalIgnoreCase))
             {
-                _cachedHandlers = RunHandlerProbe(scene, target, clsids);
+                _cachedHandlers = RunHandlerProbe(scene, target, clsids, commandClsids);
                 _cachedHandlerKey = handlerKey;
             }
         }
@@ -80,15 +80,17 @@ public sealed class MenuProbeRunner
         }
     }
 
-    private Dictionary<string, string> RunHandlerProbe(MenuScene scene, string target, IReadOnlyList<string> clsids)
+    private Dictionary<string, string> RunHandlerProbe(MenuScene scene, string target, IReadOnlyList<string> clsids, IReadOnlyList<string> commandClsids)
     {
         var map = new Dictionary<string, string>(StringComparer.CurrentCultureIgnoreCase);
-        if (clsids.Count == 0)
+        if (clsids.Count == 0 && commandClsids.Count == 0)
         {
             return map;
         }
 
-        var json = RunProbe(["--probe-handlers", scene.ToString(), target, string.Join(";", clsids)], TimeSpan.FromSeconds(40));
+        var json = RunProbe(
+            ["--probe-handlers", scene.ToString(), target, string.Join(";", clsids), string.Join(";", commandClsids)],
+            TimeSpan.FromSeconds(40));
         if (json == null)
         {
             return map;

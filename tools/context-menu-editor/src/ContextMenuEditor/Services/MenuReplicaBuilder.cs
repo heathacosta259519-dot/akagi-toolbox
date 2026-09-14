@@ -47,7 +47,7 @@ public static class MenuReplicaBuilder
         }
 
         var rows = new List<MenuReplicaRow>();
-        Append(menu.Items, 0, rows, byText, byClsid, textToClsid);
+        Append(menu.Items, 0, rows, byText, byClsid, textToClsid, null);
         return rows;
     }
 
@@ -57,7 +57,8 @@ public static class MenuReplicaBuilder
         List<MenuReplicaRow> rows,
         Dictionary<string, SimpleMenuItem> byText,
         Dictionary<string, SimpleMenuItem> byClsid,
-        IReadOnlyDictionary<string, string> textToClsid)
+        IReadOnlyDictionary<string, string> textToClsid,
+        SimpleMenuItem? parentOwner)
     {
         foreach (var entry in source)
         {
@@ -67,7 +68,7 @@ public static class MenuReplicaBuilder
                 continue;
             }
 
-            var owner = Resolve(entry.Text, byText, byClsid, textToClsid);
+            var owner = Resolve(entry.Text, byText, byClsid, textToClsid) ?? parentOwner;
             rows.Add(new MenuReplicaRow
             {
                 Source = entry,
@@ -78,7 +79,7 @@ public static class MenuReplicaBuilder
 
             if (entry.Children.Count > 0)
             {
-                Append(entry.Children, depth + 1, rows, byText, byClsid, textToClsid);
+                Append(entry.Children, depth + 1, rows, byText, byClsid, textToClsid, owner);
             }
         }
     }
