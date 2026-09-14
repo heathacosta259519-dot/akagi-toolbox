@@ -19,10 +19,9 @@ public sealed class MenuProbeRunner
 {
     private readonly string _executable;
     private readonly string _workDirectory;
-    private MenuProbeResult? _cachedMenu;
-    private Dictionary<string, string>? _cachedHandlers;
-    private string? _cachedKey;
-    private string? _cachedHandlerKey;
+    private readonly object _gate = new();
+    private readonly Dictionary<string, MenuProbeResult> _menus = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Dictionary<string, string>> _handlerMaps = new(StringComparer.OrdinalIgnoreCase);
 
     public MenuProbeRunner(string executable)
     {
@@ -30,38 +29,81 @@ public sealed class MenuProbeRunner
         _workDirectory = Path.Combine(Path.GetTempPath(), "ContextMenuEditor");
     }
 
-    public MenuReplica Load(MenuScene scene, string target, IReadOnlyList<string> clsids, IReadOnlyList<string> commandClsids)
+    public void Invalidate()
     {
-        var key = $"{scene}|{target}";
-        if (!string.Equals(_cachedKey, key, StringComparison.OrdinalIgnoreCase))
+        lock (_gate)
         {
-            _cachedMenu = RunMenuProbe(scene, target);
-            _cachedKey = key;
-            _cachedHandlers = null;
-            _cachedHandlerKey = null;
+            _menus.Clear();
+            _handlerMaps.Clear();
         }
+    }
 
-        if (_cachedMenu is { Error: null })
+    public MenuProbeResult? TryGetMenu(MenuScene scene, string target)
+    {
+        lock (_gate)
         {
-            var handlerKey = key + "|" + string.Join(";", clsids) + "|" + string.Join(";", commandClsids);
-            if (!string.Equals(_cachedHandlerKey, handlerKey, StringComparison.OrdinalIgnoreCase))
+            return _menus.TryGetValue(MenuKey(scene, target), out var cached) ? cached : null;
+        }
+    }
+
+    public Dictionary<string, string>? TryGetHandlerMap(MenuScene scene, string target, IReadOnlyList<string> clsids, IReadOnlyList<string> commandClsids)
+    {
+        lock (_gate)
+        {
+            return _handlerMaps.TryGetValue(HandlerKey(scene, target, clsids, commandClsids), out var cached) ? cached : null;
+        }
+    }
+
+    public MenuProbeResult GetMenu(MenuScene scene, string target)
+    {
+        var key = MenuKey(scene, target);
+        lock (_gate)
+        {
+            if (_menus.TryGetValue(key, out var cached))
             {
-                _cachedHandlers = RunHandlerProbe(scene, target, clsids, commandClsids);
-                _cachedHandlerKey = handlerKey;
+                return cached;
             }
         }
 
-        return new MenuReplica
+        var result = RunMenuProbe(scene, target);
+        lock (_gate)
         {
-            Menu = _cachedMenu,
-            TextToClsid = _cachedHandlers ?? new Dictionary<string, string>(StringComparer.CurrentCultureIgnoreCase),
-            Error = _cachedMenu?.Error,
-        };
+            _menus[key] = result;
+        }
+
+        return result;
     }
 
-    public void InvalidateMenu() => _cachedKey = null;
+    public Dictionary<string, string> GetHandlerMap(
+        MenuScene scene,
+        string target,
+        IReadOnlyList<string> clsids,
+        IReadOnlyList<string> commandClsids)
+    {
+        var key = HandlerKey(scene, target, clsids, commandClsids);
+        lock (_gate)
+        {
+            if (_handlerMaps.TryGetValue(key, out var cached))
+            {
+                return cached;
+            }
+        }
 
-    private MenuProbeResult? RunMenuProbe(MenuScene scene, string target)
+        var map = RunHandlerProbe(scene, target, clsids, commandClsids);
+        lock (_gate)
+        {
+            _handlerMaps[key] = map;
+        }
+
+        return map;
+    }
+
+    private static string MenuKey(MenuScene scene, string target) => $"{scene}|{target}";
+
+    private static string HandlerKey(MenuScene scene, string target, IReadOnlyList<string> clsids, IReadOnlyList<string> commandClsids) =>
+        $"{scene}|{target}|{string.Join(";", clsids)}|{string.Join(";", commandClsids)}";
+
+    private MenuProbeResult RunMenuProbe(MenuScene scene, string target)
     {
         var json = RunProbe(["--probe", scene.ToString(), target], TimeSpan.FromSeconds(25));
         if (json == null)
@@ -80,7 +122,11 @@ public sealed class MenuProbeRunner
         }
     }
 
-    private Dictionary<string, string> RunHandlerProbe(MenuScene scene, string target, IReadOnlyList<string> clsids, IReadOnlyList<string> commandClsids)
+    private Dictionary<string, string> RunHandlerProbe(
+        MenuScene scene,
+        string target,
+        IReadOnlyList<string> clsids,
+        IReadOnlyList<string> commandClsids)
     {
         var map = new Dictionary<string, string>(StringComparer.CurrentCultureIgnoreCase);
         if (clsids.Count == 0 && commandClsids.Count == 0)

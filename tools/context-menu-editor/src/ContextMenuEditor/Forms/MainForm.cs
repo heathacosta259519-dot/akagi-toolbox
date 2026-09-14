@@ -23,6 +23,7 @@ public sealed class MainForm : Form
     private Button? _browseButton;
     private string _fileTarget = string.Empty;
     private string _folderTarget = string.Empty;
+    private int _replicaGeneration;
     private readonly TextBox _searchBox = new();
     private readonly CheckBox _onlyDisabled = new();
     private readonly CheckBox _classicMenuBox = new();
@@ -256,7 +257,7 @@ public sealed class MainForm : Form
         }
 
         SaveSettings();
-        _probeRunner.InvalidateMenu();
+        _probeRunner.Invalidate();
         RebuildList();
     }
 
@@ -388,7 +389,7 @@ public sealed class MainForm : Form
         UseWaitCursor = true;
         try
         {
-            _probeRunner.InvalidateMenu();
+            _probeRunner.Invalidate();
             _entries.Clear();
             _entries.AddRange(_scanner.ScanAll());
             RebuildList();
@@ -448,9 +449,69 @@ public sealed class MainForm : Form
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        var replica = _probeRunner.Load(_scene, target, clsids, commandClsids);
+        var menu = _probeRunner.TryGetMenu(_scene, target);
+        if (menu != null)
+        {
+            RenderSimpleList(items, target, menu, _probeRunner.TryGetHandlerMap(_scene, target, clsids, commandClsids), loading: false);
+            return;
+        }
+
+        RenderSimpleList(items, target, null, null, loading: true);
+        StartReplicaLoad(_scene, target, clsids, commandClsids);
+    }
+
+    private void StartReplicaLoad(MenuScene scene, string target, string[] clsids, string[] commandClsids)
+    {
+        var generation = ++_replicaGeneration;
+
+        Task.Run(() =>
+        {
+            var menu = _probeRunner.GetMenu(scene, target);
+            PostReplica(generation, scene, target, menu, null);
+
+            if (menu is { Error: null })
+            {
+                var map = _probeRunner.GetHandlerMap(scene, target, clsids, commandClsids);
+                PostReplica(generation, scene, target, menu, map);
+            }
+        });
+    }
+
+    private void PostReplica(int generation, MenuScene scene, string target, MenuProbeResult menu, Dictionary<string, string>? handlerMap)
+    {
+        if (IsDisposed || !IsHandleCreated)
+        {
+            return;
+        }
+
+        try
+        {
+            BeginInvoke(new Action(() =>
+            {
+                if (generation != _replicaGeneration || scene != _scene || !string.Equals(target, CurrentTarget(), StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                var items = SimpleMenuBuilder.Build(_entries, _scene);
+                RenderSimpleList(items, target, menu, handlerMap, loading: handlerMap == null && menu.Error == null);
+            }));
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    private void RenderSimpleList(
+        IReadOnlyList<SimpleMenuItem> items,
+        string target,
+        MenuProbeResult? menu,
+        IReadOnlyDictionary<string, string>? handlerMap,
+        bool loading)
+    {
         var search = _searchBox.Text.Trim();
         var onlyHidden = _onlyDisabled.Checked;
+        var hasMenu = menu is { Error: null, Items.Count: > 0 };
 
         var menuCount = 0;
         var hiddenCount = 0;
@@ -461,11 +522,19 @@ public sealed class MainForm : Form
         _list.Items.Clear();
         _list.Groups.Clear();
 
-        if (replica.HasMenu)
+        if (loading)
+        {
+            _list.Items.Add(new ListViewItem("正在构建真实菜单…（后台进行，第三方扩展在独立进程里运行）")
+            {
+                ForeColor = Color.FromArgb(120, 120, 120),
+            });
+        }
+
+        if (hasMenu)
         {
             if (!onlyHidden)
             {
-                foreach (var row in MenuReplicaBuilder.Build(replica.Menu!, items, replica.TextToClsid))
+                foreach (var row in MenuReplicaBuilder.Build(menu!, items, handlerMap ?? new Dictionary<string, string>()))
                 {
                     if (search.Length > 0 && !MatchesRow(row, search))
                     {
@@ -526,7 +595,7 @@ public sealed class MainForm : Form
         _suppressCheck = false;
 
         var classic = ClassicMenuService.IsEnabled() ? "已开启" : "未开启";
-        var source = replica.HasMenu ? "真实菜单" : "注册表视图（探测未成功）";
+        var source = loading ? "正在构建真实菜单" : hasMenu ? "真实菜单" : "注册表视图（探测未成功）";
         _statusLabel.Text = $"{_scene.DisplayName()}右键 · {source} · 菜单 {menuCount} 项 · 已隐藏 {hiddenCount} 项 · 归属 {owners.Count} 个程序 · 目标：{target} · 经典菜单：{classic}（实验）";
     }
 
