@@ -485,7 +485,7 @@ public sealed class MainForm : Form
         });
     }
 
-    private void PostReplica(int generation, MenuScene scene, string target, MenuProbeResult menu, Dictionary<string, string>? handlerMap)
+    private void PostReplica(int generation, MenuScene scene, string target, MenuProbeResult menu, Dictionary<string, List<string>>? handlerMap)
     {
         if (IsDisposed || !IsHandleCreated)
         {
@@ -520,7 +520,7 @@ public sealed class MainForm : Form
         IReadOnlyList<SimpleMenuItem> items,
         string target,
         MenuProbeResult? menu,
-        IReadOnlyDictionary<string, string>? handlerMap,
+        IReadOnlyDictionary<string, List<string>>? handlerMap,
         bool loading)
     {
         var search = _searchBox.Text.Trim();
@@ -548,7 +548,7 @@ public sealed class MainForm : Form
         {
             if (!onlyHidden)
             {
-                foreach (var row in MenuReplicaBuilder.Build(menu!, items, handlerMap ?? new Dictionary<string, string>()))
+                foreach (var row in MenuReplicaBuilder.Build(menu!, items, handlerMap ?? new Dictionary<string, List<string>>()))
                 {
                     if (search.Length > 0 && !MatchesRow(row, search))
                     {
@@ -838,7 +838,7 @@ public sealed class MainForm : Form
                 return;
             }
 
-            ApplySimpleToggle(replicaRow.Owner, hide: true);
+            ApplySimpleToggle(replicaRow.Owners, replicaRow.Text, hide: true);
             return;
         }
 
@@ -893,28 +893,36 @@ public sealed class MainForm : Form
         ApplyToggle(entry, disable: !wantsEnabled);
     }
 
-    private void ApplySimpleToggle(SimpleMenuItem item, bool hide)
+    private void ApplySimpleToggle(SimpleMenuItem item, bool hide) => ApplySimpleToggle([item], item.DisplayName, hide);
+
+    private void ApplySimpleToggle(IReadOnlyList<SimpleMenuItem> owners, string displayName, bool hide)
     {
-        var title = $"{(hide ? "隐藏" : "显示")}「{item.DisplayName}」？";
+        var title = $"{(hide ? "隐藏" : "显示")}「{displayName}」？";
         var lines = new List<string>
         {
             $"场景：{_scene.DisplayName()}",
             hide ? "将把它从右键菜单中隐藏，之后可随时恢复。" : "将让它重新出现在右键菜单中。",
         };
 
-        if (item.Sources.Count > 1)
+        var programs = string.Join(" / ", owners.Select(owner => owner.Owner).Where(name => !string.IsNullOrWhiteSpace(name)).Distinct(StringComparer.CurrentCultureIgnoreCase));
+        var registrations = owners.Sum(owner => owner.Sources.Count);
+        if (owners.Count > 1)
         {
-            lines.Add($"该菜单项在系统中有 {item.Sources.Count} 处注册，将一并处理。");
+            lines.Add($"该菜单项由 {owners.Count} 个程序提供（{programs}），将一并隐藏。");
+        }
+        else if (registrations > 1)
+        {
+            lines.Add($"该菜单项在系统中有 {registrations} 处注册，将一并处理。");
         }
 
-        var warning = item.IsSystem ? "这是系统关键项，隐藏后可能影响文件夹的正常打开操作。" : null;
+        var warning = owners.Any(owner => owner.IsSystem) ? "这是系统关键项，隐藏后可能影响文件夹的正常打开操作。" : null;
 
-        if (!ConfirmDialog.Show(this, title, string.Join(Environment.NewLine, lines), warning, hide ? "确认隐藏" : "确认显示", _icons.ForEntry(item.Sources[0])))
+        if (!ConfirmDialog.Show(this, title, string.Join(Environment.NewLine, lines), warning, hide ? "确认隐藏" : "确认显示", _icons.ForEntry(owners[0].Sources[0])))
         {
             return;
         }
 
-        RunToggleMany(item, hide ? "disable" : "enable");
+        RunToggleMany(owners, hide ? "disable" : "enable");
     }
 
     private void ShowSimpleDetail(SimpleMenuItem item)
@@ -932,23 +940,26 @@ public sealed class MainForm : Form
         ApplySimpleToggle(item, hide: item.IsShown);
     }
 
-    private void RunToggleMany(SimpleMenuItem item, string action)
+    private void RunToggleMany(IReadOnlyList<SimpleMenuItem> owners, string action)
     {
         try
         {
-            foreach (var entry in item.ToggleRepresentatives())
+            foreach (var owner in owners)
             {
-                var target = entry.ToToggleTarget();
-                if (action == "disable")
+                foreach (var entry in owner.ToggleRepresentatives())
                 {
-                    _toggles.Disable(target);
-                }
-                else
-                {
-                    _toggles.Enable(target);
-                }
+                    var target = entry.ToToggleTarget();
+                    if (action == "disable")
+                    {
+                        _toggles.Disable(target);
+                    }
+                    else
+                    {
+                        _toggles.Enable(target);
+                    }
 
-                _journal.Append(JournalRecord.FromToggle(target, action));
+                    _journal.Append(JournalRecord.FromToggle(target, action));
+                }
             }
 
             ExplorerService.NotifyShellChanged();

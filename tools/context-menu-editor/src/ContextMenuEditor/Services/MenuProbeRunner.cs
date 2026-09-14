@@ -21,7 +21,7 @@ public sealed class MenuProbeRunner
     private readonly string _workDirectory;
     private readonly object _gate = new();
     private readonly Dictionary<string, MenuProbeResult> _menus = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, Dictionary<string, string>> _handlerMaps = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Dictionary<string, List<string>>> _handlerMaps = new(StringComparer.OrdinalIgnoreCase);
 
     public MenuProbeRunner(string executable)
     {
@@ -46,7 +46,7 @@ public sealed class MenuProbeRunner
         }
     }
 
-    public Dictionary<string, string>? TryGetHandlerMap(MenuScene scene, string target, IReadOnlyList<string> clsids, IReadOnlyList<string> commandClsids)
+    public Dictionary<string, List<string>>? TryGetHandlerMap(MenuScene scene, string target, IReadOnlyList<string> clsids, IReadOnlyList<string> commandClsids)
     {
         lock (_gate)
         {
@@ -74,7 +74,7 @@ public sealed class MenuProbeRunner
         return result;
     }
 
-    public Dictionary<string, string> GetHandlerMap(
+    public Dictionary<string, List<string>> GetHandlerMap(
         MenuScene scene,
         string target,
         IReadOnlyList<string> clsids,
@@ -122,13 +122,13 @@ public sealed class MenuProbeRunner
         }
     }
 
-    private Dictionary<string, string> RunHandlerProbe(
+    private Dictionary<string, List<string>> RunHandlerProbe(
         MenuScene scene,
         string target,
         IReadOnlyList<string> clsids,
         IReadOnlyList<string> commandClsids)
     {
-        var map = new Dictionary<string, string>(StringComparer.CurrentCultureIgnoreCase);
+        var map = new Dictionary<string, List<string>>(StringComparer.CurrentCultureIgnoreCase);
         if (clsids.Count == 0 && commandClsids.Count == 0)
         {
             return map;
@@ -154,7 +154,16 @@ public sealed class MenuProbeRunner
 
                 foreach (var text in handler.Texts)
                 {
-                    map.TryAdd(text, handler.Clsid);
+                    if (!map.TryGetValue(text, out var owners))
+                    {
+                        owners = [];
+                        map[text] = owners;
+                    }
+
+                    if (!owners.Contains(handler.Clsid, StringComparer.OrdinalIgnoreCase))
+                    {
+                        owners.Add(handler.Clsid);
+                    }
                 }
             }
         }

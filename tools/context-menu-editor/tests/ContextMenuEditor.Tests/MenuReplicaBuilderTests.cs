@@ -32,7 +32,7 @@ public sealed class MenuReplicaBuilderTests
             ],
         };
 
-        var rows = MenuReplicaBuilder.Build(menu, [], new Dictionary<string, string>());
+        var rows = MenuReplicaBuilder.Build(menu, [], new Dictionary<string, List<string>>());
 
         Assert.Equal(5, rows.Count);
         Assert.Equal("打开(O)", rows[0].Text);
@@ -55,7 +55,7 @@ public sealed class MenuReplicaBuilderTests
 
         var items = new[] { Static("Open Git Bash here", "Git") };
 
-        var row = Assert.Single(MenuReplicaBuilder.Build(menu, items, new Dictionary<string, string>()));
+        var row = Assert.Single(MenuReplicaBuilder.Build(menu, items, new Dictionary<string, List<string>>()));
 
         Assert.NotNull(row.Owner);
         Assert.Equal("Git", row.OwnerName);
@@ -75,13 +75,13 @@ public sealed class MenuReplicaBuilderTests
         };
 
         var items = new[] { Com("7-Zip", SevenZipClsid, "7-Zip") };
-        var textToClsid = new Dictionary<string, string>(StringComparer.CurrentCultureIgnoreCase)
+        var textToClsids = new Dictionary<string, List<string>>(StringComparer.CurrentCultureIgnoreCase)
         {
-            ["7-Zip"] = SevenZipClsid,
-            ["解压到 \"sample\\\""] = SevenZipClsid,
+            ["7-Zip"] = [SevenZipClsid],
+            ["解压到 \"sample\\\""] = [SevenZipClsid],
         };
 
-        var rows = MenuReplicaBuilder.Build(menu, items, textToClsid);
+        var rows = MenuReplicaBuilder.Build(menu, items, textToClsids);
 
         Assert.NotNull(rows[0].Owner);
         Assert.Equal("7-Zip", rows[0].OwnerName);
@@ -110,12 +110,12 @@ public sealed class MenuReplicaBuilderTests
         };
 
         var items = new[] { Com("BandiView", "{0002DEAD-9BF7-4CFA-8A5C-DE8679340001}", "BandiView") };
-        var textToClsid = new Dictionary<string, string>(StringComparer.CurrentCultureIgnoreCase)
+        var textToClsids = new Dictionary<string, List<string>>(StringComparer.CurrentCultureIgnoreCase)
         {
-            ["BandiView"] = "{0002DEAD-9BF7-4CFA-8A5C-DE8679340001}",
+            ["BandiView"] = ["{0002DEAD-9BF7-4CFA-8A5C-DE8679340001}"],
         };
 
-        var rows = MenuReplicaBuilder.Build(menu, items, textToClsid);
+        var rows = MenuReplicaBuilder.Build(menu, items, textToClsids);
 
         Assert.Equal(3, rows.Count);
         Assert.All(rows, row =>
@@ -127,6 +127,35 @@ public sealed class MenuReplicaBuilderTests
     }
 
     [Fact]
+    public void Same_text_from_several_handlers_keeps_all_owners()
+    {
+        const string qqClsid = "{11111111-0000-0000-0000-000000000001}";
+        const string timClsid = "{22222222-0000-0000-0000-000000000002}";
+
+        var menu = new MenuProbeResult
+        {
+            Items = [new MenuProbeItem { Text = "通过QQ发送到", HasSubmenu = true }],
+        };
+
+        var items = new[]
+        {
+            Com("QQShellExt", qqClsid, "QQ"),
+            Com("NTQQShellExt", timClsid, "TIM"),
+        };
+
+        var textToClsids = new Dictionary<string, List<string>>(StringComparer.CurrentCultureIgnoreCase)
+        {
+            ["通过QQ发送到"] = [qqClsid, timClsid],
+        };
+
+        var row = Assert.Single(MenuReplicaBuilder.Build(menu, items, textToClsids));
+
+        Assert.Equal(2, row.Owners.Count);
+        Assert.Equal("QQ / TIM", row.OwnerName);
+        Assert.True(row.CanToggle);
+    }
+
+    [Fact]
     public void Built_in_items_have_no_owner_and_cannot_be_toggled()
     {
         var menu = new MenuProbeResult
@@ -134,7 +163,7 @@ public sealed class MenuReplicaBuilderTests
             Items = [new MenuProbeItem { Text = "复制(C)" }, new MenuProbeItem { Text = "属性(R)", IsEnabled = false }],
         };
 
-        var rows = MenuReplicaBuilder.Build(menu, [], new Dictionary<string, string>());
+        var rows = MenuReplicaBuilder.Build(menu, [], new Dictionary<string, List<string>>());
 
         Assert.Null(rows[0].Owner);
         Assert.Equal(MenuReplicaBuilder.BuiltInOwner, rows[0].OwnerName);
