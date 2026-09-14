@@ -24,7 +24,8 @@ public sealed class MainForm : Form
     private string _fileTarget = string.Empty;
     private string _folderTarget = string.Empty;
     private int _replicaGeneration;
-    private bool _inListNotification;
+    private int _listNotificationDepth;
+    private bool _handlingItemEvent;
     private readonly TextBox _searchBox = new();
     private readonly CheckBox _onlyDisabled = new();
     private readonly CheckBox _classicMenuBox = new();
@@ -418,7 +419,7 @@ public sealed class MainForm : Form
             return;
         }
 
-        if (_inListNotification)
+        if (_listNotificationDepth > 0)
         {
             RequestRefresh();
             return;
@@ -500,7 +501,7 @@ public sealed class MainForm : Form
                     return;
                 }
 
-                if (_inListNotification)
+                if (_listNotificationDepth > 0)
                 {
                     PostReplica(generation, scene, target, menu, handlerMap);
                     return;
@@ -796,19 +797,21 @@ public sealed class MainForm : Form
 
     private void OnItemChecked(object? sender, ItemCheckedEventArgs e)
     {
-        if (_suppressCheck)
+        if (_suppressCheck || _handlingItemEvent)
         {
             return;
         }
 
-        _inListNotification = true;
+        _handlingItemEvent = true;
+        _listNotificationDepth++;
         try
         {
             HandleItemChecked(e);
         }
         finally
         {
-            _inListNotification = false;
+            _listNotificationDepth--;
+            _handlingItemEvent = false;
         }
     }
 
@@ -1031,14 +1034,21 @@ public sealed class MainForm : Form
 
     private void OnItemActivate(object? sender, EventArgs e)
     {
-        _inListNotification = true;
+        if (_handlingItemEvent)
+        {
+            return;
+        }
+
+        _handlingItemEvent = true;
+        _listNotificationDepth++;
         try
         {
             HandleItemActivate();
         }
         finally
         {
-            _inListNotification = false;
+            _listNotificationDepth--;
+            _handlingItemEvent = false;
         }
     }
 
